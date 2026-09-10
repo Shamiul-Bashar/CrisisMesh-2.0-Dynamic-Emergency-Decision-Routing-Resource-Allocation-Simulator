@@ -1,0 +1,45 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
+
+type LabEvent={step:number;type:string;structure:string;message:string;values:number[];value:string;scalar:number};
+type TreeTrace={algorithm:string;inorder:number[];nodes:{key:number;parent:number;depth:number}[];events:LabEvent[]};
+type SortTrace={algorithm:string;input:number[];output:number[];events:LabEvent[]};
+type SearchTrace={algorithm:string;input:number[];target:number;foundIndex:number;events:LabEvent[]};
+type SparseTrace={algorithm:string;rows:number;cols:number;nonZeroCount:number;entries:{row:number;col:number;value:number}[];events:LabEvent[]};
+type ExpressionTrace={algorithm:string;infix:string;postfix:string;result:number;valid:boolean;events:LabEvent[]};
+
+type LabData={bst:TreeTrace;avl:TreeTrace;sorting:{algorithm:string;algorithms:SortTrace[]};searching:{algorithm:string;algorithms:SearchTrace[]};sparse:SparseTrace;expression:ExpressionTrace};
+const complexity:Record<string,{time:string;space:string;why:string}>={
+ BST:{time:'Insert/Search/Delete: O(h)',space:'O(h)',why:'Ordered incident/archive index; recursive tree traversal is explicit.'},
+ AVL:{time:'Insert/Search: O(log n)',space:'O(n)',why:'Balanced index when predictable lookup depth is required.'},
+ 'Bubble Sort':{time:'O(n²)',space:'O(1)',why:'Educational baseline for ranking traces.'},'Selection Sort':{time:'O(n²)',space:'O(1)',why:'Simple in-place ranking demonstration.'},'Insertion Sort':{time:'O(n²)',space:'O(1)',why:'Useful for nearly ordered operational records.'},'Merge Sort':{time:'O(n log n)',space:'O(n)',why:'Stable divide-and-conquer ordering demonstration.'},'Quick Sort':{time:'Average O(n log n)',space:'O(log n) average',why:'Fast average-case ordering demonstration.'},'Heap Sort':{time:'O(n log n)',space:'O(1)',why:'Connects sorting with heap operations.'},
+ 'Linear Search':{time:'O(n)',space:'O(1)',why:'Direct scan of small incident/responder collections.'},'Binary Search':{time:'O(log n)',space:'O(1)',why:'Fast lookup on ordered archives.'},'Sparse Matrix':{time:'Set O(n) in trace model',space:'O(k) for k non-zero cells',why:'Compact city-risk matrix representation.'},'Expression Processing':{time:'O(n)',space:'O(n)',why:'Stack-based infix-to-postfix conversion and evaluation.'}
+};
+const tabNames=['BST','AVL','SORTING','SEARCHING','SPARSE MATRIX','EXPRESSION'] as const;
+type Tab=typeof tabNames[number];
+
+function TreePreview({tree}:{tree:{nodes:{key:number;parent:number;depth:number}[]}}){const levels=Array.from(new Set(tree.nodes.map(n=>n.depth))).sort((a,b)=>a-b);return <div className="tree-preview" aria-label="C++ generated tree structure">{levels.map(depth=><div className="tree-level" key={depth}><small>L{depth}</small><div>{tree.nodes.filter(n=>n.depth===depth).map(n=><b key={n.key} title={n.parent<0?'Root':`Parent ${n.parent}`}>{n.key}</b>)}</div></div>)}</div>}
+
+export default function MasterDSALab({onClose}:{onClose:()=>void}){
+ const [data,setData]=useState<LabData|null>(null); const [tab,setTab]=useState<Tab>('BST'); const [selectedSort,setSelectedSort]=useState('Merge Sort'); const [selectedSearch,setSelectedSearch]=useState('Binary Search'); const [index,setIndex]=useState(-1); const [playing,setPlaying]=useState(false); const [speed,setSpeed]=useState<'SLOW'|'NORMAL'|'FAST'>('NORMAL'); const [error,setError]=useState(''); const timer=useRef<number|null>(null);
+ useEffect(()=>{let alive=true;fetch('/data/dsa-master-events.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json() as Promise<LabData>}).then(d=>alive&&setData(d)).catch(()=>alive&&setError('C++ generated DSA master trace is unavailable. Run crisismesh_trace_exporter from backend/build.'));return()=>{alive=false}},[]);
+ const events=useMemo(()=>{if(!data)return []; if(tab==='BST')return data.bst.events;if(tab==='AVL')return data.avl.events;if(tab==='SORTING')return data.sorting.algorithms.find(x=>x.algorithm===selectedSort)?.events??[];if(tab==='SEARCHING')return data.searching.algorithms.find(x=>x.algorithm===selectedSearch)?.events??[];if(tab==='SPARSE MATRIX')return data.sparse.events;return data.expression.events},[data,tab,selectedSort,selectedSearch]);
+ const delays={SLOW:900,NORMAL:420,FAST:150} as const;
+ useEffect(()=>{if(!playing||!events.length)return; if(index>=events.length-1){setPlaying(false);return;} timer.current=window.setTimeout(()=>setIndex(v=>Math.min(v+1,events.length-1)),delays[speed]); return()=>{if(timer.current!==null)window.clearTimeout(timer.current)}},[playing,index,events.length,speed]);
+ useEffect(()=>()=>{if(timer.current!==null)window.clearTimeout(timer.current)},[]);
+ useEffect(()=>{setPlaying(false);setIndex(-1)},[tab,selectedSort,selectedSearch]);
+ const reset=()=>{setPlaying(false);setIndex(-1)};
+ const stepForward=()=>setIndex(v=>Math.min(v+1,events.length-1));
+ const stepBack=()=>setIndex(v=>Math.max(-1,v-1));
+ const current=events[Math.max(-1,Math.min(index,events.length-1))]??null; const infoKey=tab==='SORTING'?selectedSort:tab==='SEARCHING'?selectedSearch:tab==='SPARSE MATRIX'?'Sparse Matrix':tab==='EXPRESSION'?'Expression Processing':tab; const info=complexity[infoKey]??{time:'See trace',space:'See trace',why:'Academic DSA demonstration'};
+ return <div className="master-dsa-overlay" role="dialog" aria-modal="true" aria-labelledby="master-dsa-title"><section className="master-dsa-modal"><header><div><span className="eyebrow">C++17 DSA / PRE-GENERATED TRACE</span><h2 id="master-dsa-title">MASTER DSA LAB</h2><p>Real traces exported from the manual C++ implementations. React only presents the recorded operations.</p></div><button onClick={onClose} aria-label="Close master DSA lab"><X size={17}/></button></header>
+  <nav className="master-dsa-tabs">{tabNames.map(t=><button key={t} className={tab===t?'active':''} onClick={()=>{setTab(t);setIndex(-1)}}>{t}</button>)}</nav>
+  {error?<div className="dijkstra-error">{error}</div>:!data?<div className="empty-state">LOADING C++ DSA TRACE…</div>:<>
+    <div className="master-dsa-toolbar"><span>{tab==='SORTING'?<select value={selectedSort} onChange={e=>setSelectedSort(e.target.value)}>{data.sorting.algorithms.map(x=><option key={x.algorithm}>{x.algorithm}</option>)}</select>:tab==='SEARCHING'?<select value={selectedSearch} onChange={e=>setSelectedSearch(e.target.value)}>{data.searching.algorithms.map(x=><option key={x.algorithm}>{x.algorithm}</option>)}</select>:<b>{tab}</b>}</span><div className="master-dsa-playback"><button onClick={()=>setPlaying(v=>!v)} disabled={!events.length}>{playing?<><Pause size={13}/> PAUSE</>:<><Play size={13}/> PLAY</>}</button><button onClick={stepBack} disabled={index<=-1}><SkipBack size={13}/> PREV</button><button onClick={stepForward} disabled={!events.length||index>=events.length-1}><SkipForward size={13}/> NEXT</button><button onClick={reset}><RotateCcw size={13}/> RESET</button><select aria-label="Trace playback speed" value={speed} onChange={e=>setSpeed(e.target.value as typeof speed)}><option value="SLOW">SLOW</option><option value="NORMAL">NORMAL</option><option value="FAST">FAST</option></select></div></div>
+    <div className="master-dsa-progress"><i style={{width:`${events.length ? Math.max(0,((index+1)/events.length)*100) : 0}%`}}/></div><div className="master-dsa-grid"><div className="master-dsa-card"><span>INPUT / STRUCTURE</span>{(tab==='BST'||tab==='AVL')?<TreePreview tree={tab==='BST'?data.bst:data.avl}/>:<div className="master-values">{tab==='SORTING'?data.sorting.algorithms.find(x=>x.algorithm===selectedSort)?.input.map((n,i)=><b key={i}>{n}</b>):tab==='SEARCHING'?data.searching.algorithms.find(x=>x.algorithm===selectedSearch)?.input.map((n,i)=><b key={i}>{n}</b>):tab==='SPARSE MATRIX'?data.sparse.entries.map(e=><b key={`${e.row}-${e.col}`}>({e.row},{e.col})={e.value}</b>):<b>{data.expression.infix}</b>}</div>}</div><div className="master-dsa-card"><span>CURRENT TRACE EVENT</span><strong>{current?.type??'READY'}</strong><small>{current?.message??'Play or step through the real C++ operation trace.'}</small><em>STEP {current?.step??0} / {events.length} · {playing?'PLAYING':'PAUSED / READY'}</em>{current?.value && <code className="master-dsa-event-value">{current.value}</code>}</div></div>
+    <div className="master-dsa-info"><div><span>PURPOSE</span><b>{info.why}</b></div><div><span>TIME</span><b>{info.time}</b></div><div><span>SPACE</span><b>{info.space}</b></div></div>
+    {tab==='SPARSE MATRIX'&&<div className="master-dsa-card"><span>SPARSE REPRESENTATION</span><small>{data.sparse.rows} × {data.sparse.cols} matrix · {data.sparse.nonZeroCount} non-zero entries stored.</small></div>}
+    {tab==='EXPRESSION'&&<div className="master-dsa-card"><span>EXPRESSION PIPELINE</span><strong>{data.expression.infix} → {data.expression.postfix} → {data.expression.result}</strong><small>{data.expression.valid?'Valid expression':'Invalid expression'}</small></div>}
+  </>}
+ </section></div>;
+}
