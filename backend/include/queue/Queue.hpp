@@ -5,7 +5,20 @@
 
 namespace crisismesh {
 
-// Manual circular-array Queue. No std::queue is used.
+// ================================================================
+// DSA: Queue (FIFO)
+// CrisisMesh role:
+// New emergency reports are first inserted into a manual FIFO queue before the
+// system evaluates triage, priority, and dispatch order. This preserves the
+// chronological intake sequence that the academic workflow expects.
+//
+// Why it matters:
+// The queue provides a predictable report intake pipeline. It ensures that
+// incoming incidents are not processed out of arrival order before priority is
+// applied.
+// Time complexity: enqueue O(1) amortized, dequeue O(1), size O(1)
+// Space complexity: O(n)
+// ================================================================
 template <typename T>
 class Queue {
 public:

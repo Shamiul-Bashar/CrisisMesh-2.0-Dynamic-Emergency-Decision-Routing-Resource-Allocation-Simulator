@@ -9,7 +9,19 @@
 
 namespace crisismesh {
 
-/** Minimal binary heap for Dijkstra's frontier. No std::priority_queue is used. */
+// ================================================================
+// DSA: Min Heap
+// CrisisMesh role:
+// This heap maintains the current Dijkstra frontier. The lowest-cost node is
+// extracted first so the routing engine can expand the shortest valid path.
+//
+// Why it matters:
+// Dijkstra is only efficient when frontier selection is prioritized correctly.
+// The manual heap preserves the deterministic route-cost ordering used by the
+// authoritative simulation engine.
+// Time complexity: push O(log n), pop O(log n), peek O(1)
+// Space complexity: O(n)
+// ================================================================
 class MinHeap {
 public:
     struct Item {

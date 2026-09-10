@@ -6,6 +6,20 @@
 
 namespace crisismesh {
 
+// ================================================================
+// DSA: Dijkstra's Shortest Path Algorithm
+// CrisisMesh role:
+// The routing engine evaluates the least-cost path between a responder and an
+// incident or facility. Edge cost combines distance, travel time, congestion,
+// risk, and capacity effects under the authoritative C++ scoring model.
+//
+// Why it matters:
+// When a responder must reach an incident or when a road is blocked and reroute
+// is required, CrisisMesh relies on Dijkstra to compute a valid and efficient
+// path.
+// Complexity depends on the graph and heap implementation; in this project it is
+// driven by the manual Min Heap frontier.
+// ================================================================
 enum class DijkstraEventType {
     START, SOURCE_SELECTED, NODE_EXTRACTED, NODE_VISITED, EDGE_EXAMINED,
     DISTANCE_CHECKED, EDGE_RELAXED, DISTANCE_UPDATED, PREDECESSOR_UPDATED,

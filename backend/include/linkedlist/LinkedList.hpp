@@ -6,6 +6,20 @@
 
 namespace crisismesh {
 
+// ================================================================
+// DSA: Linked List
+// CrisisMesh role:
+// Resolved incident history is stored in a manual linked-list sequence. Each
+// record is appended and traversed in order to preserve a deterministic event
+// log.
+//
+// Why it matters:
+// The simulator needs a chronological record of closed or resolved incidents.
+// The linked list gives the engine a low-overhead way to append history without
+// a large dynamic array reallocation burden.
+// Time complexity: insert O(1) at front/back, O(n) in the middle, traverse O(n)
+// Space complexity: O(n)
+// ================================================================
 class LinkedList {
 public:
     struct Event { std::string type; std::size_t index{0}; std::size_t size{0}; std::string value; };

@@ -330,7 +330,10 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
               ref={svgRef}
               className="city-map"
               viewBox="0 0 100 100"
-              onWheel={e => { e.preventDefault(); changeZoom(e.deltaY < 0 ? .12 : -.12); }}
+              onWheel={e => {
+                if (e.cancelable) e.preventDefault();
+                changeZoom(e.deltaY < 0 ? .12 : -.12);
+              }}
               onPointerDown={e => { if ((e.target as Element).closest('.map-interactive')) return; setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }); e.currentTarget.setPointerCapture(e.pointerId); }}
               onPointerMove={e => { if (!drag) return; const rect = svgRef.current?.getBoundingClientRect(); if (!rect) return; setPan({ x: drag.px + ((e.clientX - drag.x) / rect.width) * 100 / zoom, y: drag.py + ((e.clientY - drag.y) / rect.height) * 100 / zoom }); }}
               onPointerUp={() => setDrag(null)}

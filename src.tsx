@@ -33,7 +33,7 @@ function getUsers(): StoredUser[] {
 }
 function saveUsers(users: StoredUser[]) { localStorage.setItem('cm-users', JSON.stringify(users)); }
 
-function App() {
+export default function App() {
   const [screen, setScreen] = useState<Screen>(() => {
     try {
       const session = JSON.parse(localStorage.getItem('cm-session') || 'null') as { role?: Role } | null;
@@ -333,5 +333,3 @@ function UserDashboard({ onHome }: { onHome: () => void }) {
     {reportOpen && <EmergencyReport onClose={() => setReportOpen(false)} onSubmitted={payload => { if (payload.state) setState(payload.state); }} />}
   </main>;
 }
-
-createRoot(document.getElementById('root')!).render(<App />);

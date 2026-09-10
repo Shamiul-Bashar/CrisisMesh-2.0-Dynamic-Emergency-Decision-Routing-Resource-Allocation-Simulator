@@ -6,6 +6,19 @@
 
 namespace crisismesh {
 
+// ================================================================
+// DSA: Max Heap
+// CrisisMesh role:
+// The emergency queue is prioritized using a manual binary Max Heap. The most
+// urgent incident is extracted first, which preserves the deterministic
+// dispatch order used by the simulation engine.
+//
+// Why it matters:
+// A Max Heap ensures that the highest-priority emergency remains at the root,
+// making triage and dispatch decisions transparent and auditable.
+// Time complexity: insert O(log n), extractMax O(log n), peek O(1)
+// Space complexity: O(n)
+// ================================================================
 class MaxHeap {
 public:
     enum class EventType { INSERT, COMPARE, SWAP, EXTRACT_MAX, PEEK_MAX, HEAPIFY, CLEAR };

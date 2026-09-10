@@ -8,12 +8,18 @@
 
 namespace crisismesh {
 
-/**
- * Manual undirected adjacency-list graph used by the CrisisMesh engine.
- *
- * The adjacency list stores edge IDs per vertex. The edge records themselves
- * live in the edge table so an edge can be updated without duplicating state.
- */
+// ================================================================
+// DSA: Graph (adjacency-list representation)
+// CrisisMesh role:
+// The graph models the city road network as vertices and weighted roads.
+// Dispatch, rerouting, responder reachability, and road-block analysis all
+// depend on this authoritative topology.
+//
+// Why it matters:
+// A graph is the backbone of emergency routing. Every node represents a city
+// location, and each edge represents an operational road with cost, capacity,
+// and congestion metadata.
+// ================================================================
 class Graph {
 public:
     bool addVertex(const Vertex& vertex);

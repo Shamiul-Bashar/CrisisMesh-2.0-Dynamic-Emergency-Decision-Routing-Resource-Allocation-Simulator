@@ -6,6 +6,18 @@
 
 namespace crisismesh {
 
+// ================================================================
+// DSA: Hash Table
+// CrisisMesh role:
+// The custom hash table stores incident records in buckets keyed by incident ID.
+// This provides efficient lookup and update operations during live simulation.
+//
+// Why it matters:
+// The C++ engine frequently asks, "what is the state of this incident?" The
+// hash table reduces repeated linear scans and keeps lookup operations fast.
+// Time complexity: average insert/search/remove O(1), worst O(n)
+// Space complexity: O(n)
+// ================================================================
 struct IncidentRecord { std::string id; std::string type; std::string status; int priority{0}; };
 
 class HashTable {
