@@ -7,11 +7,25 @@ import CommandCenter from './features/command-center/CommandCenter';
 import EmergencyReport from './features/emergency/EmergencyReport';
 import { simulationRequest } from './core/simulation/api';
 import type { SimulationResponse, SimulationState } from './core/simulation/types';
+import {
+  authenticateUser,
+  hashPassword,
+  normalizeEmail,
+  normalizePhone,
+  normalizeUsername,
+  readAuthorPassword,
+  readSession,
+  readUsers,
+  updateUserPassword,
+  writeAuthorPasswordVerified,
+  writeSessionVerified,
+  writeUsersVerified,
+  type Role,
+  type StoredUser,
+} from './core/auth/credentials';
 
-type Role = 'user' | 'author';
 type Screen = 'home' | 'login' | 'register' | 'forgot' | 'otp' | 'dashboard';
 type OTPState = 'input' | 'verifying' | 'success' | 'error' | 'expired';
-type StoredUser = { id: string; name: string; username: string; phone: string; email: string; passwordHash: string; createdAt?: number; lastLogin?: number | null; accountStatus?: 'Active' | 'Inactive'; role?: 'user' };
 type UserMessage = { id: string; recipientId: string | 'all'; senderId: string; senderName: string; subject: string; body: string; createdAt: number; read: boolean; type: 'individual' | 'broadcast'; };
 
 const OTP_TTL = 60_000;
@@ -19,22 +33,15 @@ const AUTHOR = { username: 'admin', password: 'CrisisMesh@2026' };
 const AUTHOR_RECOVERY_EMAIL = 'crisismeshauthor121318@gmail.com';
 
 const makeOTP = () => { const bytes = new Uint32Array(1); crypto.getRandomValues(bytes); return String(100000 + (bytes[0] % 900000)); };
-const normalizeEmail = (v: string) => v.trim().toLowerCase();
-const normalizePhone = (v: string) => v.replace(/\D/g, '');
-const normalizeUsername = (v: string) => v.trim().toLowerCase();
 const getAuthorPassword = () => {
   try {
-    return localStorage.getItem('cm-author-password') || AUTHOR.password;
+    return readAuthorPassword(localStorage, AUTHOR.password);
   } catch {
     return AUTHOR.password;
   }
 };
 const setAuthorPassword = (password: string) => {
-  try {
-    localStorage.setItem('cm-author-password', password);
-  } catch {
-    // Ignore storage failures for the demo environment.
-  }
+  writeAuthorPasswordVerified(localStorage, password);
 };
 const maskPhone = (value: string) => {
   const digits = normalizePhone(value);
@@ -75,16 +82,12 @@ const getPasswordStrength = (password: string) => {
   };
 };
 
-async function hashText(value: string) {
-  const data = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+const hashText = hashPassword;
 
 function getUsers(): StoredUser[] {
-  try { return JSON.parse(localStorage.getItem('cm-users') || '[]'); } catch { return []; }
+  return readUsers(localStorage);
 }
-function saveUsers(users: StoredUser[]) { localStorage.setItem('cm-users', JSON.stringify(users)); }
+function saveUsers(users: StoredUser[]) { writeUsersVerified(localStorage, users); }
 function getUserMessages(): UserMessage[] {
   try { const stored = JSON.parse(localStorage.getItem('cm-user-messages') || '[]'); return Array.isArray(stored) ? stored : []; } catch { return []; }
 }
@@ -92,44 +95,41 @@ function saveUserMessages(messages: UserMessage[]) { localStorage.setItem('cm-us
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>(() => {
-    try {
-      const session = JSON.parse(localStorage.getItem('cm-session') || 'null') as { role?: Role } | null;
-      return session?.role === 'author' || session?.role === 'user' ? 'dashboard' : 'home';
-    } catch {
-      return 'home';
-    }
+    return readSession(localStorage) ? 'dashboard' : 'home';
   });
   const [role, setRole] = useState<Role>(() => {
-    try {
-      const session = JSON.parse(localStorage.getItem('cm-session') || 'null') as { role?: Role } | null;
-      return session?.role === 'author' || session?.role === 'user' ? session.role : 'user';
-    } catch {
-      return 'user';
-    }
+    return readSession(localStorage)?.role ?? 'user';
   });
   const [authNotice, setAuthNotice] = useState('');
   const [pendingUser, setPendingUser] = useState<StoredUser | null>(null);
+  const [pendingSessionUserId, setPendingSessionUserId] = useState<string | null>(null);
 
   const goHome = () => { localStorage.removeItem('cm-session'); setAuthNotice(''); setScreen('home'); };
   const startLogin = (nextRole: Role) => { setRole(nextRole); setAuthNotice(''); setScreen('login'); };
 
   const completeOTP = async () => {
+    const sessionUserId = role === 'author' ? 'author' : pendingSessionUserId;
+    if (!sessionUserId) {
+      setAuthNotice('Unable to establish the authenticated user identity. Please sign in again.');
+      setScreen('login');
+      return;
+    }
     if (pendingUser) {
       const users = getUsers();
       saveUsers([...users.filter((u) => u.id !== pendingUser.id), pendingUser]);
       setPendingUser(null);
     }
-    const sessionUserId = pendingUser?.id ?? (role === 'author' ? 'author' : null);
-    localStorage.setItem('cm-session', JSON.stringify({ role, establishedAt: Date.now(), userId: sessionUserId }));
+    writeSessionVerified(localStorage, role, sessionUserId);
+    setPendingSessionUserId(null);
     setScreen('dashboard');
   };
 
   return (
     <AnimatePresence mode="wait">
       {screen === 'home' && <Home key="home" onLogin={startLogin} />}
-      {screen === 'login' && <Login key="login" role={role} onBack={goHome} onRegister={() => { setAuthNotice(''); setScreen('register'); }} onContinue={() => setScreen('otp')} onForgot={() => { setAuthNotice(''); setScreen('forgot'); }} notice={authNotice} setNotice={setAuthNotice} />}
+      {screen === 'login' && <Login key="login" role={role} onBack={goHome} onRegister={() => { setAuthNotice(''); setScreen('register'); }} onContinue={(userId) => { setPendingSessionUserId(userId); setScreen('otp'); }} onForgot={() => { setAuthNotice(''); setScreen('forgot'); }} notice={authNotice} setNotice={setAuthNotice} />}
       {screen === 'forgot' && <ForgotPassword key="forgot" role={role} onBack={() => setScreen('login')} onSuccess={() => { setAuthNotice(''); setScreen('login'); }} />}
-      {screen === 'register' && <Register key="register" onBack={() => setScreen('login')} onCreated={(user) => { setPendingUser(user); setRole('user'); setScreen('otp'); }} />}
+      {screen === 'register' && <Register key="register" onBack={() => setScreen('login')} onCreated={(user) => { setPendingUser(user); setPendingSessionUserId(user.id); setRole('user'); setScreen('otp'); }} />}
       {screen === 'otp' && <OTP key="otp" role={role} back={() => setScreen(role === 'user' && pendingUser ? 'register' : 'login')} done={completeOTP} />}
       {screen === 'dashboard' && <Dashboard key="dashboard" role={role} onHome={goHome} />}
     </AnimatePresence>
@@ -190,7 +190,7 @@ function TypewriterHeading({ phrases }: { phrases: string[] }) {
   return <h2 className="typewriter-heading">{text}</h2>;
 }
 
-function Login({ role, onBack, onRegister, onContinue, onForgot, notice, setNotice }: { role: Role; onBack: () => void; onRegister: () => void; onContinue: () => void; onForgot: () => void; notice: string; setNotice: (v: string) => void }) {
+function Login({ role, onBack, onRegister, onContinue, onForgot, notice, setNotice }: { role: Role; onBack: () => void; onRegister: () => void; onContinue: (userId: string) => void; onForgot: () => void; notice: string; setNotice: (v: string) => void }) {
   const [identity, setIdentity] = useState(role === 'author' ? 'admin' : '');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
@@ -199,13 +199,15 @@ function Login({ role, onBack, onRegister, onContinue, onForgot, notice, setNoti
     if (!identity || !password) return setNotice('Please complete all required fields.');
     if (role === 'author') {
       if (normalizeUsername(identity) !== AUTHOR.username || password !== getAuthorPassword()) return setNotice('Invalid coordinator credentials.');
+      setNotice(''); onContinue('author');
     } else {
-      const users = getUsers(); const u = users.find((x) => normalizeUsername(x.username) === normalizeUsername(identity) || normalizeEmail(x.email) === normalizeEmail(identity));
-      if (!u || u.passwordHash !== await hashText(password)) return setNotice('Invalid username/email or password.');
+      const users = getUsers();
+      const u = await authenticateUser(localStorage, identity, password);
+      if (!u) return setNotice('Invalid username/email or password.');
       const updatedUsers: StoredUser[] = users.map((user) => user.id === u.id ? { ...user, lastLogin: Date.now(), accountStatus: 'Active' as const } : user);
       saveUsers(updatedUsers);
+      setNotice(''); onContinue(u.id);
     }
-    setNotice(''); onContinue();
   };
   return <Shell onBack={onBack}><button className="back-link" onClick={onBack}><ArrowLeft size={15}/> Back to home</button><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={21}/></div><div><span className="eyebrow">{role === 'author' ? 'COORDINATOR ACCESS' : 'CITIZEN ACCESS'}</span><TypewriterHeading phrases={role === 'author' ? ['INITIALIZING SECURE CONNECTION...', 'VERIFYING COORDINATOR ACCESS...', 'AUTHENTICATING NODE...'] : ['AUTHENTICATING NODE...', 'SECURE SESSION ONLINE...', 'WELCOME BACK...']} /></div></div><p className="auth-copy">{role === 'author' ? 'Authenticate the single simulation coordinator before security verification.' : 'Sign in to your CrisisMesh simulation account.'}</p>{notice && <div className="notice error"><XCircle size={16}/>{notice}</div>}<form onSubmit={submit} className="form"><label>Username or email<input autoComplete="username" value={identity} onChange={e => setIdentity(e.target.value)} placeholder={role === 'author' ? 'admin' : 'username or email'} /></label><label>Password<div className="password-wrap"><input autoComplete="current-password" type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" /><button type="button" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={16}/> : <Eye size={16}/>}</button></div></label><div className="forgot-password-row"><button type="button" className="link-button" onClick={onForgot}>Forgot Password?</button></div><button className="primary" type="submit">CONTINUE TO SECURITY <ChevronRight size={16}/></button></form>{role === 'user' && <div className="switch-line">New to CrisisMesh? <button onClick={onRegister}>Create new user ID</button></div>}<div className="demo-note"><span>ACCESS INFORMATION</span>{role === 'author' ? <b>Seeded coordinator account: admin</b> : <small>Register an account to continue.</small>}</div></Shell>;
 }
@@ -815,28 +817,9 @@ function ForgotPassword({
         );
 
       } else if (userMatch) {
-        const users = getUsers();
-
-        const passwordHash =
-          await hashText(
-            newPassword
-          );
-
-        const updatedUsers =
-          users.map(
-            (user) =>
-              user.id ===
-              userMatch.id
-                ? {
-                    ...user,
-                    passwordHash,
-                  }
-                : user
-          );
-
-        saveUsers(
-          updatedUsers
-        );
+        await updateUserPassword(localStorage, userMatch.id, newPassword);
+      } else {
+        throw new Error('The intended user account could not be identified.');
       }
 
       setStep('success');
@@ -1675,13 +1658,7 @@ function UserDashboard({ onHome }: { onHome: () => void }) {
     useState('Problem is only partially resolved');
 
 
-  const session =
-    JSON.parse(
-      localStorage.getItem('cm-session') || 'null'
-    ) as {
-      userId?: string;
-      role?: Role;
-    } | null;
+  const session = readSession(localStorage);
 
 
   const currentUserId =
