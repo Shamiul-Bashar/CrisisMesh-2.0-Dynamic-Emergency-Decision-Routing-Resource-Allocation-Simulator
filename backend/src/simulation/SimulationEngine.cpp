@@ -1,7 +1,7 @@
 ﻿#include "simulation/SimulationEngine.hpp"
 #include "graph/CityData.hpp"
+#include "array/OperationalArray.hpp"
 #include <algorithm>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -23,14 +23,19 @@ SimulationEngine::SimulationEngine() : graph_(createCrisisMeshCity()), incidentT
         {"POLICE-UNIT-02","POLICE_UNIT","LOC-006",ResponderAvailability::Available,2,true},
         {"RESCUE-UNIT-01","RESCUE_TEAM","LOC-012",ResponderAvailability::Available,4,true}
     };
+    rebuildLocationDirectory();
 }
 
 void SimulationEngine::emit(const std::string&type,const Incident*in,const std::string&node,const std::string&edge,const std::string&message,int value){
     AlgorithmEvent e; e.type=type;e.algorithm="SIMULATION";e.step=events_.size()+1;e.nodeId=node;e.edgeId=edge;e.message=message;e.priority=in?in->priorityScore:value;e.key=in?in->incidentId:"";e.status=in?toString(in->status):"";e.size=events_.size()+1;e.value1=value; if(in)e.responderId=in->assignedResponderId;events_.push_back(std::move(e));
 }
-Incident& SimulationEngine::mutableIncident(const std::string&id){for(auto&i:incidents_)if(i.incidentId==id)return i;throw std::invalid_argument("Unknown incident: "+id);}
-const Incident* SimulationEngine::findIncident(const std::string&id) const {for(const auto&i:incidents_)if(i.incidentId==id)return &i;return nullptr;}
+Incident& SimulationEngine::mutableIncident(const std::string&id){const auto* record=incidentTable_.search(id);if(record&&record->incidentIndex<incidents_.size()&&incidents_[record->incidentIndex].incidentId==id)return incidents_[record->incidentIndex];throw std::invalid_argument("Unknown incident: "+id);}
+const Incident* SimulationEngine::findIncident(const std::string&id) const {const auto* record=incidentTable_.search(id);if(record&&record->incidentIndex<incidents_.size()&&incidents_[record->incidentIndex].incidentId==id)return &incidents_[record->incidentIndex];return nullptr;}
 const Shelter* SimulationEngine::findShelter(const std::string&id) const { for (const auto& s : allocationEngine_.shelters()) if (s.shelterId == id) return &s; return nullptr; }
+std::vector<std::string> SimulationEngine::intakeIncidentIds() const { std::vector<std::string> ids; for(const auto& incident:intakeQueue_.values()) ids.push_back(incident.incidentId); return ids; }
+void SimulationEngine::rebuildLocationDirectory(){locationDirectory_.clear();for(const auto& pair:graph_.vertices())locationDirectory_.insert({pair.second.id,pair.second.name,pair.second.type});}
+void SimulationEngine::refreshIncidentIndex(const Incident& incident){const auto* record=incidentTable_.search(incident.incidentId);if(record)incidentTable_.update({incident.incidentId,toString(incident.type),toString(incident.status),incident.priorityScore,record->incidentIndex});}
+void SimulationEngine::archiveClosedIncident(const Incident& incident){if(archiveIndex_.insert({incident.reportedSequence,incident.incidentId,toString(incident.status)}))emit("AVL_ARCHIVE_INSERT",&incident,incident.locationId,"","Closed incident indexed in balanced AVL archive");}
 
 Incident SimulationEngine::reportEmergency(
     IncidentType type,
@@ -41,7 +46,8 @@ Incident SimulationEngine::reportEmergency(
     const std::string& description,
     const std::string& reportedByUserId
 ){
-    if(!graph_.vertexExists(locationId))
+    if(!locationDirectory_.find(locationId)) rebuildLocationDirectory();
+    if(!locationDirectory_.find(locationId))
         throw std::invalid_argument("Invalid incident location: " + locationId);
 
     if(!Incident::validSeverity(severity) ||
@@ -94,7 +100,8 @@ Incident SimulationEngine::reportEmergency(
         i.incidentId,
         toString(i.type),
         toString(i.status),
-        i.priorityScore
+        i.priorityScore,
+        incidents_.size() - 1
     });
 
     emit(
@@ -108,6 +115,7 @@ Incident SimulationEngine::reportEmergency(
     i.status = IncidentStatus::Queued;
 
     mutableIncident(i.incidentId).status = i.status;
+    refreshIncidentIndex(mutableIncident(i.incidentId));
 
     intakeQueue_.enqueue(i);
 
@@ -130,6 +138,7 @@ DispatchResult SimulationEngine::processNextIncident(){
         i.status=IncidentStatus::Triaged; emit("INCIDENT_TRIAGED",&i,i.locationId,"","Incident triaged");
         i.status=IncidentStatus::Prioritized;
         i.priorityScore=Incident::calculatePriority(i.severity,i.urgency,i.victimCount,i.type);
+        refreshIncidentIndex(i);
         emit("PRIORITY_CALCULATED",&i,i.locationId,"","Deterministic emergency priority calculated",i.priorityScore);
         const int victimScore = std::min(i.victimCount, 10) * 3;
         const int severityScore = i.severity * 12;
@@ -152,29 +161,35 @@ DispatchResult SimulationEngine::processNextIncident(){
 }
 
 Responder* SimulationEngine::chooseResponder(const Incident&incident,DijkstraResult&bestRoute){
-    Responder*best=nullptr;double bestCost=std::numeric_limits<double>::infinity();
+    struct Evaluation { Responder* responder{nullptr}; DijkstraResult route{}; };
+    OperationalArray<Evaluation, 32> candidates;
+    lastCandidateSummaries_.clear();
     for(auto&r:responders_){
         if(r.availability!=ResponderAvailability::Available||!responderTypeMatches(incident.type,r.type))continue;
         emit("RESPONDER_CHECKED",&incident,r.currentLocation,"","Eligible responder evaluated");
         auto route=dijkstra_.run(graph_,r.currentLocation,incident.locationId);
+        if(!candidates.pushBack({&r,route})) throw std::overflow_error("Responder candidate array capacity exceeded");
+        lastCandidateSummaries_.push_back({r.responderId,route.reachable,route.totalCost,route.totalTravelTime,route.totalDistance});
         if(!route.reachable){
             AlgorithmEvent candidate; candidate.type="RESPONDER_CANDIDATE"; candidate.algorithm="ALLOCATION_ENGINE"; candidate.step=events_.size()+1; candidate.key=incident.incidentId; candidate.responderId=r.responderId; candidate.status="UNREACHABLE"; candidate.message="Eligible responder has no reachable C++ Dijkstra route"; events_.push_back(std::move(candidate));
             continue;
         }
         AlgorithmEvent candidate; candidate.type="RESPONDER_CANDIDATE"; candidate.algorithm="ALLOCATION_ENGINE"; candidate.step=events_.size()+1; candidate.key=incident.incidentId; candidate.responderId=r.responderId; candidate.status="REACHABLE"; candidate.value1=route.totalCost; candidate.value2=route.totalDistance; candidate.message="Eligible responder route cost evaluated by C++ Dijkstra"; events_.push_back(std::move(candidate));
-        if(route.totalCost<bestCost){bestCost=route.totalCost;best=&r;bestRoute=std::move(route);}
     }
-    return best;
+    mergeSortCandidates(lastCandidateSummaries_);
+    if(lastCandidateSummaries_.empty()||!lastCandidateSummaries_.front().reachable)return nullptr;
+    for(std::size_t index=0;index<candidates.size();++index)if(candidates[index].responder->responderId==lastCandidateSummaries_.front().responderId){bestRoute=candidates[index].route;return candidates[index].responder;}
+    return nullptr;
 }
 DispatchResult SimulationEngine::dispatchIncident(const std::string&id){
     Incident&i=mutableIncident(id);DijkstraResult route;Responder*r=chooseResponder(i,route);
-    if(!r){i.status=IncidentStatus::WaitingForResource;emit("WAITING_FOR_RESOURCE",&i,i.locationId,"","No available eligible responder has a valid route");return {false,i,{},route,"No eligible reachable responder"};}
+    if(!r){i.status=IncidentStatus::WaitingForResource;refreshIncidentIndex(i);emit("WAITING_FOR_RESOURCE",&i,i.locationId,"","No available eligible responder has a valid route");return {false,i,{},route,"No eligible reachable responder"};}
     i.assignedResponderId=r->responderId;i.status=IncidentStatus::Assigned;r->availability=ResponderAvailability::Assigned;
-    incidentTable_.remove(i.incidentId);incidentTable_.insert({i.incidentId,toString(i.type),toString(i.status),i.priorityScore});
+    refreshIncidentIndex(i);
     emit("RESPONDER_SELECTED",&i,r->currentLocation,"","Best reachable responder selected");
     emit("DISPATCH_STARTED",&i,r->currentLocation,"","Dispatch started");
     emit("ROUTE_CALCULATED",&i,r->currentLocation,"","C++ Dijkstra route selected");
-    i.status=IncidentStatus::EnRoute;emit("INCIDENT_EN_ROUTE",&i,i.locationId,"","Responder is en route");
+    i.status=IncidentStatus::EnRoute;refreshIncidentIndex(i);emit("INCIDENT_EN_ROUTE",&i,i.locationId,"","Responder is en route");
     const bool shelterNeeded = i.victimCount > 0 && (i.type == IncidentType::Flood || i.type == IncidentType::Structural || i.type == IncidentType::Rescue);
     if (shelterNeeded) {
         const auto shelter = allocationEngine_.selectShelter(graph_, i, dijkstra_);
@@ -206,14 +221,13 @@ bool SimulationEngine::blockRoad(const std::string&id){
         }
     }
     graph_.blockEdge(id);
-    roadUndoStack_.push(id);
+    roadUndoStack_.push({id,false});
     emit("ROAD_BLOCKED",nullptr,"",id,"Road blocked in authoritative C++ graph");
     for(const auto&a:active){
         if(std::find(a.route.pathEdges.begin(),a.route.pathEdges.end(),id)!=a.route.pathEdges.end()){
             Incident& inc=mutableIncident(a.incidentId);
             inc.status=IncidentStatus::RerouteRequired;
-            incidentTable_.remove(inc.incidentId);
-            incidentTable_.insert({inc.incidentId,toString(inc.type),toString(inc.status),inc.priorityScore});
+            refreshIncidentIndex(inc);
             emit("REROUTE_REQUIRED",&inc,inc.locationId,id,"Active route used the blocked road");
             rerouteAssignedIncident(a.incidentId);
         }
@@ -223,18 +237,17 @@ bool SimulationEngine::blockRoad(const std::string&id){
 bool SimulationEngine::unblockRoad(const std::string&id){if(!graph_.unblockEdge(id))return false;emit("ROAD_UNBLOCKED",nullptr,"",id,"Road reopened in authoritative C++ graph");return true;}
 bool SimulationEngine::undoLastRoadBlock(){
     if(roadUndoStack_.isEmpty()) return false;
-    const std::string id=roadUndoStack_.pop();
-    if(!graph_.isBlocked(id)) return false;
-    graph_.unblockEdge(id);
-    emit("ROAD_OPERATION_UNDONE",nullptr,"",id,"Last road block undone using the manual Stack");
+    const RoadUndoAction action=roadUndoStack_.pop();
+    if(action.wasBlocked) graph_.blockEdge(action.edgeId); else graph_.unblockEdge(action.edgeId);
+    emit("ROAD_OPERATION_UNDONE",nullptr,"",action.edgeId,"Last road block restored using the manual Stack");
     return true;
 }
 DispatchResult SimulationEngine::rerouteAssignedIncident(const std::string&id){
     Incident&i=mutableIncident(id);Responder*r=nullptr;for(auto&x:responders_)if(x.responderId==i.assignedResponderId)r=&x;
     if(!r)return {false,i,{},{},"Assigned responder not found"};
     auto route=dijkstra_.run(graph_,r->currentLocation,i.locationId);
-    if(!route.reachable){i.status=IncidentStatus::Unreachable;emit("DESTINATION_UNREACHABLE",&i,i.locationId,"","No route after road change");return {false,i,*r,route,"Destination unreachable"};}
-    i.status=IncidentStatus::EnRoute;emit("REROUTE_CALCULATED",&i,r->currentLocation,"","New route calculated by C++ Dijkstra");
+    if(!route.reachable){i.status=IncidentStatus::Unreachable;refreshIncidentIndex(i);emit("DESTINATION_UNREACHABLE",&i,i.locationId,"","No route after road change");return {false,i,*r,route,"Destination unreachable"};}
+    i.status=IncidentStatus::EnRoute;refreshIncidentIndex(i);emit("REROUTE_CALCULATED",&i,r->currentLocation,"","New route calculated by C++ Dijkstra");
     return {true,i,*r,route,"Reroute successful"};
 }
 bool SimulationEngine::setResponderAvailability(const std::string& responderId, ResponderAvailability availability){
@@ -256,9 +269,7 @@ bool SimulationEngine::resolveIncident(const std::string&id){
 
     i.status=IncidentStatus::Resolved;
 
-    history_.insertBack(
-        i.incidentId+" / "+toString(i.status)
-    );
+    history_.insertBack(std::to_string(i.reportedSequence)+" | "+i.incidentId+" | "+toString(i.status));
 
     emit(
         "INCIDENT_RESOLVED",
@@ -285,14 +296,8 @@ bool SimulationEngine::resolveIncident(const std::string&id){
 
     i.status=IncidentStatus::Closed;
 
-    incidentTable_.remove(i.incidentId);
-
-    incidentTable_.insert({
-        i.incidentId,
-        toString(i.type),
-        toString(i.status),
-        i.priorityScore
-    });
+    refreshIncidentIndex(i);
+    archiveClosedIncident(i);
 
     emit(
         "INCIDENT_CLOSED",
@@ -355,16 +360,7 @@ bool SimulationEngine::markResponseCompleted(
     i.status =
         IncidentStatus::AwaitingUserConfirmation;
 
-    incidentTable_.remove(
-        i.incidentId
-    );
-
-    incidentTable_.insert({
-        i.incidentId,
-        toString(i.type),
-        toString(i.status),
-        i.priorityScore
-    });
+    refreshIncidentIndex(i);
 
     emit(
         "AWAITING_USER_CONFIRMATION",
@@ -421,11 +417,7 @@ bool SimulationEngine::confirmIncidentResolved(
     i.status =
         IncidentStatus::Resolved;
 
-    history_.insertBack(
-        i.incidentId +
-        " / " +
-        toString(i.status)
-    );
+    history_.insertBack(std::to_string(i.reportedSequence)+" | "+i.incidentId+" | "+toString(i.status));
 
     emit(
         "INCIDENT_RESOLVED",
@@ -450,16 +442,8 @@ bool SimulationEngine::confirmIncidentResolved(
     i.status =
         IncidentStatus::Closed;
 
-    incidentTable_.remove(
-        i.incidentId
-    );
-
-    incidentTable_.insert({
-        i.incidentId,
-        toString(i.type),
-        toString(i.status),
-        i.priorityScore
-    });
+    refreshIncidentIndex(i);
+    archiveClosedIncident(i);
 
     emit(
         "INCIDENT_CLOSED",
@@ -540,16 +524,7 @@ bool SimulationEngine::escalateIncident(
     i.status =
         IncidentStatus::Queued;
 
-    incidentTable_.remove(
-        i.incidentId
-    );
-
-    incidentTable_.insert({
-        i.incidentId,
-        toString(i.type),
-        toString(i.status),
-        i.priorityScore
-    });
+    refreshIncidentIndex(i);
 
     /*
      * Re-enter the authoritative manual FIFO intake queue.
@@ -609,6 +584,7 @@ std::string SimulationEngine::stateToJson() const {
       << ",\"blockedRoads\":" << blockedEdges.size()
       << ",\"blockedEdgeIds\":" << arr(blockedEdges) << "}"
       << ",\"roadUndoStack\":{\"depth\":" << roadUndoStack_.size() << ",\"canUndo\":" << (roadUndoStack_.isEmpty()?"false":"true") << "}"
+      << ",\"incidentArchive\":{\"size\":" << archiveIndex_.size() << ",\"balanced\":" << (archiveIndex_.isBalanced()?"true":"false") << "}"
       << ",\"incidents\":[";
     for (std::size_t i=0;i<incidents_.size();++i) { if(i) o<<','; o<<incidentToJson(incidents_[i]); }
     o << "]";
@@ -788,7 +764,7 @@ std::string SimulationEngine::eventsToJson(const std::vector<AlgorithmEvent>&ev,
     o<<"]";if(result){o<<",\"result\":{\"success\":"<<(result->success?"true":"false")<<",\"message\":"<<q(result->message)<<",\"incident\":"<<incidentToJson(result->incident)<<",\"responder\":{\"responderId\":"<<q(result->responder.responderId)<<",\"type\":"<<q(result->responder.type)<<",\"locationId\":"<<q(result->responder.currentLocation)<<"},\"route\":{\"reachable\":"<<(result->route.reachable?"true":"false")<<",\"totalCost\":"<<result->route.totalCost<<",\"totalDistance\":"<<result->route.totalDistance<<",\"totalTravelTime\":"<<result->route.totalTravelTime<<",\"pathNodes\":"<<arr(result->route.pathNodes)<<",\"pathEdges\":"<<arr(result->route.pathEdges)<<"}}";}return o.str()+"}";}
 void SimulationEngine::reset(){
     graph_=createCrisisMeshCity(); intakeQueue_.clear(); maxHeap_.clear(); incidents_.clear(); responders_.clear();
-    incidentTable_.clear(); history_.clear(); events_.clear(); allocationEngine_.reset(); roadUndoStack_.clear(); sequence_=0; nextIncidentNumber_=201;
+    incidentTable_.clear(); history_.clear(); archiveIndex_.clear(); locationDirectory_.clear(); lastCandidateSummaries_.clear(); events_.clear(); allocationEngine_.reset(); roadUndoStack_.clear(); sequence_=0; nextIncidentNumber_=201;
     responders_ = {
         {"FIRE-UNIT-01","FIRE_TRUCK","LOC-003",ResponderAvailability::Available,1,true},
         {"FIRE-UNIT-02","FIRE_TRUCK","LOC-004",ResponderAvailability::Available,1,true},
@@ -799,6 +775,7 @@ void SimulationEngine::reset(){
         {"POLICE-UNIT-02","POLICE_UNIT","LOC-006",ResponderAvailability::Available,2,true},
         {"RESCUE-UNIT-01","RESCUE_TEAM","LOC-012",ResponderAvailability::Available,4,true}
     };
+    rebuildLocationDirectory();
 }
 
 } // namespace crisismesh

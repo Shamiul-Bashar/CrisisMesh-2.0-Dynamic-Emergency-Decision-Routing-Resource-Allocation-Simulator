@@ -18,7 +18,13 @@ namespace crisismesh {
 // Time complexity: average insert/search/remove O(1), worst O(n)
 // Space complexity: O(n)
 // ================================================================
-struct IncidentRecord { std::string id; std::string type; std::string status; int priority{0}; };
+struct IncidentRecord {
+    std::string id;
+    std::string type;
+    std::string status;
+    int priority{0};
+    std::size_t incidentIndex{0};
+};
 
 class HashTable {
 public:
@@ -28,6 +34,7 @@ public:
     HashTable(const HashTable&) = delete;
     HashTable& operator=(const HashTable&) = delete;
     bool insert(const IncidentRecord& record);
+    bool update(const IncidentRecord& record);
     const IncidentRecord* search(const std::string& key) const;
     bool remove(const std::string& key);
     void clear();
