@@ -92,6 +92,8 @@ export type Route = {
   totalDistance: number;
   totalTravelTime: number;
 
+  nodesExplored?: number;
+
   pathNodes: string[];
   pathEdges: string[];
 };
@@ -298,33 +300,21 @@ export type DispatchResult = {
    GENERIC SIMULATION RESPONSE
    ========================================================= */
 
-export type SimulationResponse<
-  T = unknown
-> = {
-  ok?: boolean;
+export type ReportResult = {
+  incident: SimulationIncident;
+};
+
+export type SimulationResponse<T = unknown> = {
+  ok: boolean;
 
   message?: string;
   error?: string;
 
-  state?: SimulationState;
+  state: SimulationState | null;
 
-  incident?: SimulationIncident;
+  events: SimulationEvent[];
 
-  events?: {
-    events?: SimulationEvent[];
-  };
-
-  result?: DispatchResult;
-
-
-  responder?: {
-    responderId: string;
-    type: string;
-    locationId: string;
-  };
-
-
-  route?: Route;
+  result: T | null;
 
 
   [key: string]: unknown;

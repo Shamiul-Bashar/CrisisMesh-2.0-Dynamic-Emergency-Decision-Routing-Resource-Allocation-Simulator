@@ -644,13 +644,23 @@ function simulationBridge(): Plugin {
                 }
 
 
-                if (
-                  !parsed ||
-                  typeof parsed !==
-                    'object'
-                ) {
+                if (!parsed || typeof parsed !== 'object') {
                   throw new Error(
                     'The C++ simulation bridge returned an invalid response object.'
+                  );
+                }
+
+                const envelope = parsed as Record<string, unknown>;
+                if (
+                  typeof envelope.ok !== 'boolean' ||
+                  !Array.isArray(envelope.events) ||
+                  !Object.prototype.hasOwnProperty.call(envelope, 'state') ||
+                  !Object.prototype.hasOwnProperty.call(envelope, 'result') ||
+                  (envelope.ok && (!envelope.state || typeof envelope.state !== 'object')) ||
+                  (!envelope.ok && envelope.state !== null)
+                ) {
+                  throw new Error(
+                    'The C++ simulation bridge returned an invalid response contract.'
                   );
                 }
 
@@ -683,6 +693,9 @@ function simulationBridge(): Plugin {
                     ok: false,
                     error:
                       message,
+                    state: null,
+                    events: [],
+                    result: null,
                   })
                 );
               }

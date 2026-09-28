@@ -16,7 +16,8 @@ import {
   type Edge, type Facility, type Incident, type LocationType, type Responder, type Vertex
 } from '../../core/graph';
 import { simulationRequest } from '../../core/simulation/api';
-import type { ActiveDispatch, SimulationIncident, SimulationResponse, SimulationState } from '../../core/simulation/types';
+import { isActiveOperationalIncident } from '../../core/simulation/selectors';
+import type { ActiveDispatch, ReportResult, SimulationIncident, SimulationResponse, SimulationState } from '../../core/simulation/types';
 
 const iconFor: Record<LocationType, LucideIcon> = {
   hospital: Hospital, fire: Flame, police: Shield, school: GraduationCap,
@@ -32,8 +33,14 @@ const facilityColors: Record<string, string> = {
 
 const facilityByNode = new Map(facilities.map(f => [f.nodeId, f]));
 const incidentByNode = new Map(incidents.map(i => [i.locationId, i]));
+
+function graphWithBlockedRoads(blockedEdgeIds: string[]) {
+  const graph = createCityGraph();
+  for (const edgeId of blockedEdgeIds) graph.blockEdge(edgeId);
+  return graph;
+}
 const severityClass = (s: string) => s.toLowerCase().replace(/\s+/g, '-');
-type SimulationResult = SimulationResponse & { incident: SimulationIncident };
+type SimulationResult = SimulationResponse<ReportResult>;
 type AuthorUser = {
   id: string;
   name: string;
@@ -160,18 +167,16 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
       const data = await simulationRequest<SimulationResponse>({ action: 'UNDO_BLOCK' });
       if (!data.state) throw new Error('The C++ bridge returned no STATE snapshot after undo.');
       setEngineState(data.state); setBridgeStatus('ONLINE');
-      for (const id of data.state.graph.blockedEdgeIds) { const edge = g.getEdge(id); if (edge && !edge.blocked) g.toggleBlock(id); }
-      for (const edge of g.getEdges()) { if (edge.blocked && !data.state.graph.blockedEdgeIds.includes(edge.id)) g.toggleBlock(edge.id); }
-      setG({ ...g } as ReturnType<typeof createCityGraph>);
+      setG(graphWithBlockedRoads(data.state.graph.blockedEdgeIds));
       setSystemEvent('ROAD OPERATION UNDONE · MANUAL STACK');
     } catch (error: unknown) { setSystemEvent(error instanceof Error ? error.message : 'Unable to undo the last road block.'); }
-  }, [g]);
+  }, []);
 
   const processNextIncident = useCallback(async () => {
     setProcessing(true);
     try {
       const data = await simulationRequest<SimulationResponse>({ action: 'PROCESS_NEXT' });
-      const latest = Array.isArray(data?.events?.events) ? data.events.events[data.events.events.length - 1] : null;
+      const latest = data.events[data.events.length - 1] ?? null;
       if (latest?.message) setSystemEvent(`${latest.type.replace(/_/g, ' ')} · ${latest.message}`);
       await refreshState();
       return data;
@@ -247,12 +252,11 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
       const data = await simulationRequest<SimulationResponse>({ action: current.blocked ? 'UNBLOCK' : 'BLOCK', edgeId: id });
       const authoritativeState = data.state;
       if (!authoritativeState) throw new Error('The C++ bridge returned no STATE snapshot after the road operation.');
-      const isBlocked = authoritativeState.graph.blockedEdgeIds.includes(id);
-      if (g.getEdge(id)?.blocked !== isBlocked) g.toggleBlock(id);
-      const next = g.getEdge(id);
-      setG({ ...g } as ReturnType<typeof createCityGraph>);
+      const nextGraph = graphWithBlockedRoads(authoritativeState.graph.blockedEdgeIds);
+      const next = nextGraph.getEdge(id);
+      setG(nextGraph);
       if (next) setSelectedRoad({ ...next });
-      const latest = Array.isArray(data?.events?.events) ? data.events.events[data.events.events.length - 1] : null;
+      const latest = data.events[data.events.length - 1] ?? null;
       if (latest?.message) setSystemEvent(`${latest.type.replace(/_/g, ' ')} · ${latest.message}`);
       await refreshState();
     } catch (error: unknown) {
@@ -289,9 +293,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
   const dijkstraContext = useMemo(() => {
     const engineResponder = selectedEngineIncident?.assignedResponderId ? engineResponders.find(r => r.responderId === selectedEngineIncident.assignedResponderId) : null;
     const staticResponder =
-      lastSimulation?.incident?.incidentId === selectedIncident?.id && lastSimulation?.responder
-        ? { id: lastSimulation.responder.responderId, locationId: lastSimulation.responder.locationId }
-        : selectedIncident?.id === 'INC-118' ? responders.find(r => r.id === 'AMB-UNIT-01') :
+        selectedIncident?.id === 'INC-118' ? responders.find(r => r.id === 'AMB-UNIT-01') :
         selectedIncident?.id === 'INC-121' ? responders.find(r => r.id === 'POLICE-UNIT-01') :
         selectedIncident?.id === 'INC-127' ? responders.find(r => r.id === 'FIRE-UNIT-02') :
         responders.find(r => r.id === 'FIRE-UNIT-01');
@@ -304,8 +306,8 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
     return {
       sourceId: source?.locationId ?? '',
       sourceLabel: source?.id ?? 'UNASSIGNED',
-      destinationId: selectedEngineIncident?.locationId ?? selectedIncident?.locationId ?? lastSimulation?.incident?.locationId ?? 'LOC-007',
-      destinationLabel: selectedEngineIncident?.incidentId ?? selectedIncident?.id ?? lastSimulation?.incident?.incidentId ?? 'INC-104'
+      destinationId: selectedEngineIncident?.locationId ?? selectedIncident?.locationId ?? lastSimulation?.result?.incident.locationId ?? 'LOC-007',
+      destinationLabel: selectedEngineIncident?.incidentId ?? selectedIncident?.id ?? lastSimulation?.result?.incident.incidentId ?? 'INC-104'
     };
   }, [selectedIncident, selectedEngineIncident, selectedEngineIncidentId, lastSimulation, engineResponders]);
 
@@ -476,10 +478,10 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
                     <circle className="incident-pulse" r={active ? 3.6 : 2.5} /><circle className="incident-core" r="1.25" /><foreignObject x="-.85" y="-.85" width="1.7" height="1.7" pointerEvents="none"><div className="incident-icon"><Siren size={7} /></div></foreignObject><text x="2.5" y=".8">{i.id}</text>
                   </g>;
                 })}
-                {layers.incidents && engineIncidents.map(i => {
+                {layers.incidents && engineIncidents.filter(isActiveOperationalIncident).map(i => {
                   const n = g.getVertex(i.locationId); if (!n) return null;
                   const active = selectedEngineIncidentId === i.incidentId;
-                  return <g className={`incident-marker cxx-engine-marker map-interactive ${i.priorityScore >= 100 ? 'critical' : i.priorityScore >= 75 ? 'high' : 'medium'} ${active ? 'selected' : ''}`} key={i.incidentId} transform={`translate(${n.x - 2.4},${n.y + 2.6})`} onClick={e => { e.stopPropagation(); setSelectedEngineIncidentId(i.incidentId); setSelectedIncident(null); setSelectedNode(n); setSelectedFacility(facilityByNode.get(n.id) || null); setSelectedRoad(null); setCollapsedRight(false); }}>
+                  return <g className={`incident-marker cxx-engine-marker map-interactive ${i.priorityScore >= 100 ? 'critical' : i.priorityScore >= 75 ? 'high' : 'medium'} ${i.status === 'AWAITING_USER_CONFIRMATION' ? 'awaiting-confirmation' : ''} ${active ? 'selected' : ''}`} key={i.incidentId} transform={`translate(${n.x - 2.4},${n.y + 2.6})`} onClick={e => { e.stopPropagation(); setSelectedEngineIncidentId(i.incidentId); setSelectedIncident(null); setSelectedNode(n); setSelectedFacility(facilityByNode.get(n.id) || null); setSelectedRoad(null); setCollapsedRight(false); }}>
                     <circle className="incident-pulse" r={active ? 3.8 : 2.8} /><circle className="incident-core" r="1.3" /><foreignObject x="-.9" y="-.9" width="1.8" height="1.8" pointerEvents="none"><div className="incident-icon"><Siren size={7} /></div></foreignObject><text x="-2.8" y=".8">{i.incidentId}</text>
                   </g>;
                 })}
@@ -950,8 +952,8 @@ function OverviewPanel({ g, paused, setPaused, blocked, lastSimulation, bridgeSt
       {!priorityHeap.length && <div className="empty-state">No incidents currently stored in the priority heap.</div>}
     </div>
 
-    {lastSimulation?.incident && <div className="engine-dispatch-card"><div><span>LAST C++ INCIDENT</span><b>{lastSimulation.incident.incidentId}</b></div><strong>{lastSimulation.incident.type} · PRIORITY {lastSimulation.incident.priorityScore}</strong><small>{lastSimulation.incident.status} · {lastSimulation.responder?.responderId || 'WAITING FOR RESOURCE'} → {lastSimulation.incident.locationId}</small><button onClick={onReport}>REPORT ANOTHER EMERGENCY</button></div>}
-    {!lastSimulation?.incident && <button className="wide-action emergency-wide" onClick={onReport}><AlertTriangle size={14}/> REPORT EMERGENCY TO C++ ENGINE</button>}
+    {lastSimulation?.result?.incident && <div className="engine-dispatch-card"><div><span>LAST C++ INCIDENT</span><b>{lastSimulation.result.incident.incidentId}</b></div><strong>{lastSimulation.result.incident.type} · PRIORITY {lastSimulation.result.incident.priorityScore}</strong><small>{lastSimulation.result.incident.status} · WAITING FOR COORDINATOR → {lastSimulation.result.incident.locationId}</small><button onClick={onReport}>REPORT ANOTHER EMERGENCY</button></div>}
+    {!lastSimulation?.result?.incident && <button className="wide-action emergency-wide" onClick={onReport}><AlertTriangle size={14}/> REPORT EMERGENCY TO C++ ENGINE</button>}
 
     <div className="section-label">OPERATIONS ANALYTICS</div>
     <div className="analytics-grid">
@@ -1014,24 +1016,22 @@ function IncidentPanel({ incident, g, routing, setRouting, onOpenDijkstra, lastS
   lastSimulation: SimulationResult | null;
 }) {
   const n = g.getVertex(incident.locationId)!;
-  const simulationResult = lastSimulation?.incident?.incidentId === incident.id ? lastSimulation : null;
-  const engineRoute = simulationResult?.route;
-  const incidentResponder = simulationResult?.responder;
-  const displayPriority = simulationResult?.incident?.priorityScore ?? incident.priority;
-  const displayStatus = simulationResult?.incident?.status ?? incident.status;
-  const routeNodes = engineRoute?.pathNodes ?? [];
-  const routeDistance = typeof engineRoute?.totalDistance === 'number' ? `${engineRoute.totalDistance.toFixed(2)} KM` : '—';
-  const routeCost = typeof engineRoute?.totalCost === 'number' ? engineRoute.totalCost.toFixed(2) : '—';
-  const eta = typeof engineRoute?.totalTravelTime === 'number' ? `${engineRoute.totalTravelTime.toFixed(0)} MIN` : '—';
-  const resourceType = simulationResult?.responder?.type || incident.resource;
+  const simulationIncident = lastSimulation?.result?.incident.incidentId === incident.id ? lastSimulation.result.incident : null;
+  const displayPriority = simulationIncident?.priorityScore ?? incident.priority;
+  const displayStatus = simulationIncident?.status ?? incident.status;
+  const routeNodes: string[] = [];
+  const routeDistance = '—';
+  const routeCost = '—';
+  const eta = '—';
+  const resourceType = incident.resource;
   return <div className="detail-content incident-panel">
     <div className={`incident-hero ${severityClass(incident.severity)}`}><div className={`incident-big ${severityClass(incident.severity)}`}><Siren size={22} /></div><div><strong>{incident.type}</strong><span>{incident.severity} PRIORITY</span></div><b>{Number(displayPriority).toFixed(0)}</b></div>
     <div className="incident-location"><MapPin size={14} /><div><b>{n.name}</b><span>{n.id} · Crisis City operational grid</span></div></div>
-    <div className="detail-grid"><div><span>AFFECTED</span><b>{simulationResult?.incident?.victimCount ?? incident.affected} PEOPLE</b></div><div><span>STATUS</span><b>{displayStatus}</b></div><div><span>RESOURCE</span><b>{incidentResponder?.responderId || resourceType}</b></div><div><span>ROUTE</span><b>{routeDistance}</b></div></div>
+    <div className="detail-grid"><div><span>AFFECTED</span><b>{simulationIncident?.victimCount ?? incident.affected} PEOPLE</b></div><div><span>STATUS</span><b>{displayStatus}</b></div><div><span>RESOURCE</span><b>{resourceType}</b></div><div><span>ROUTE</span><b>{routeDistance}</b></div></div>
     <div className="section-label">C++ DISPATCH DECISION</div>
-    {simulationResult ? <div className="dispatch-proof"><div><span>DECISION SOURCE</span><b>C++ Dijkstra + Responder Selection</b></div><div><span>RESPONDER</span><b>{incidentResponder?.responderId || 'WAITING FOR RESOURCE'}</b></div><div><span>ROUTE COST</span><b>{routeCost}</b></div><div><span>TRAVEL TIME</span><b>{eta}</b></div>{routeNodes.length > 0 && <div className="dispatch-route"><span>PATH</span><b>{routeNodes.join(' → ')}</b></div>}</div> : <div className="dispatch-proof muted"><div><span>ENGINE RESULT</span><b>NO C++ DECISION FOR THIS STATIC INCIDENT</b></div><small>Submit a new emergency to create a C++-authoritative incident and dispatch result.</small></div>}
+    {simulationIncident ? <div className="dispatch-proof"><div><span>DECISION SOURCE</span><b>C++ SimulationEngine</b></div><div><span>RESPONDER</span><b>WAITING FOR COORDINATOR</b></div><div><span>ROUTE COST</span><b>{routeCost}</b></div><div><span>TRAVEL TIME</span><b>{eta}</b></div>{routeNodes.length > 0 && <div className="dispatch-route"><span>PATH</span><b>{routeNodes.join(' → ')}</b></div>}</div> : <div className="dispatch-proof muted"><div><span>ENGINE RESULT</span><b>NO C++ DECISION FOR THIS STATIC INCIDENT</b></div><small>Submit a new emergency to create a C++-authoritative incident and dispatch result.</small></div>}
     <div className="section-label">ROUTING ANALYSIS</div>
-    <div className="routing-method"><Route size={13} /><span>DIJKSTRA / MIN HEAP</span><b>{routing ? 'EVALUATING' : engineRoute?.reachable ? 'CALCULATED' : 'READY'}</b></div>
+    <div className="routing-method"><Route size={13} /><span>DIJKSTRA / MIN HEAP</span><b>{routing ? 'EVALUATING' : 'READY'}</b></div>
     <div className="dispatch-actions">
       <button className="dijkstra-launch" onClick={() => { setRouting(true); onOpenDijkstra(); }}><Route size={13} /> OPEN C++ DIJKSTRA TRACE</button>
     </div>
