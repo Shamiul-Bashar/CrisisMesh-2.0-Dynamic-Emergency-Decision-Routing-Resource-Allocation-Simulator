@@ -135,7 +135,12 @@ void server() {
 
             if (command == "STATE") {
                 success(engine);
+            } else if (command == "ANALYZE_BFS" || command == "ANALYZE_DFS" || command == "ANALYZE_DIJKSTRA") {
+                require(parts.size() == 3, "Analysis requires source|destination");
+                std::cout << engine.analyze(command.substr(8), parts[1], parts[2]) << '\n';
             } else if (command == "REPORT") {
+                require(parts.size() >= 8 && parts[7].find_first_not_of(" \t\r\n") != std::string::npos,
+                        "A reporting citizen ID is required");
                 require(parts.size() >= 7,
                         "REPORT requires type|location|severity|urgency|victims|description");
                 const Incident incident = engine.reportEmergency(

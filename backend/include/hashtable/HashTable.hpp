@@ -35,7 +35,7 @@ public:
     HashTable& operator=(const HashTable&) = delete;
     bool insert(const IncidentRecord& record);
     bool update(const IncidentRecord& record);
-    const IncidentRecord* search(const std::string& key) const;
+    const IncidentRecord* search(const std::string& key, bool trace = true) const;
     bool remove(const std::string& key);
     void clear();
     bool contains(const std::string& key) const { return search(key) != nullptr; }

@@ -14,6 +14,7 @@
 #include "search/LocationDirectory.hpp"
 #include "sort/CandidateMergeSort.hpp"
 #include "tree/IncidentArchiveIndex.hpp"
+#include "simulation/DispatchRecord.hpp"
 
 #include <string>
 #include <vector>
@@ -61,6 +62,9 @@ public:
     }
 
     const IncidentArchiveIndex& archiveIndex() const { return archiveIndex_; }
+    const std::vector<Facility>& facilities() const { return facilities_; }
+    const std::vector<DispatchRecord>& dispatches() const { return dispatches_; }
+    std::string analyze(const std::string& algorithm, const std::string& source, const std::string& destination) const;
     const LocationDirectory& locationDirectory() const { return locationDirectory_; }
     const std::vector<ResponderCandidateSummary>& lastCandidateSummaries() const { return lastCandidateSummaries_; }
     std::vector<std::string> intakeIncidentIds() const;
@@ -245,6 +249,16 @@ private:
     IncidentArchiveIndex archiveIndex_;
     LocationDirectory locationDirectory_;
     std::vector<ResponderCandidateSummary> lastCandidateSummaries_;
+    std::vector<Facility> facilities_;
+    std::vector<DispatchRecord> dispatches_;
+    long long dispatchSequence_{0};
+    void initializeFacilities();
+    void saveDispatch(const Incident&, const Responder&, const DijkstraResult&, bool reroute = false);
+    void releaseResponder(const Incident&);
+    void retryWaiting();
+    void recoverRoads();
+    std::string networkJson() const;
+    std::string dispatchesJson() const;
 
 
     /* =====================================================

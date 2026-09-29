@@ -4,7 +4,8 @@
 using namespace crisismesh;
 int main(){
     SimulationEngine e;
-    assert(e.setResponderAvailability("AMB-UNIT-01",ResponderAvailability::Offline));
+    for(const auto& responder:e.responders()) if(responder.type=="AMBULANCE")
+        assert(e.setResponderAvailability(responder.responderId,ResponderAvailability::Offline));
     auto i=e.reportEmergency(IncidentType::Medical,"LOC-010",5,5,2,"No ambulance scenario");
     auto d=e.processNextIncident();
     assert(!d.success);

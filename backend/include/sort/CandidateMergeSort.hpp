@@ -11,6 +11,14 @@ struct ResponderCandidateSummary {
     double weightedCost{0.0};
     double travelTime{0.0};
     double distance{0.0};
+    std::string responderType;
+    std::string startLocationId;
+    std::string destinationLocationId;
+    double risk{0.0};
+    double congestion{0.0};
+    std::vector<std::string> pathNodes;
+    std::vector<std::string> pathEdges;
+    std::size_t graphRevision{0};
 };
 
 // DSA: Merge Sort
