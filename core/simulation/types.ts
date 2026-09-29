@@ -360,4 +360,4 @@ type AnalysisBase = { source: string; destination: string; graphRevision: number
 export type LiveAnalysis = (AnalysisBase & { algorithm: 'BFS'; minimumHops: number | null; visitOrder: string[] }) |
   (AnalysisBase & { algorithm: 'DFS'; visitOrder: string[] }) |
   (AnalysisBase & RouteMetrics & { algorithm: 'DIJKSTRA' });
-export type AnalysisResponse = Omit<SimulationResponse<LiveAnalysis>, 'events'> & { events: AnalysisEvent[] };
+export type AnalysisResponse = { ok: boolean; state: SimulationState | null; result: LiveAnalysis | null; events: AnalysisEvent[]; error?: string };
