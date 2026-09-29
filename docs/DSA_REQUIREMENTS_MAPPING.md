@@ -2,6 +2,8 @@
 
 Phase 2 keeps the existing DSA Lab and connects the required structures to the authoritative C++ emergency workflow.
 
+Phase 3 extends the same structures with persisted dispatch records and live graph analysis. See [the city and dispatch contract](AUTHORITATIVE_CITY_DISPATCH.md). DFS uses manual traversal frames with parent-linked backtracking; its cached adjacency and event trace use O(V + E) space.
+
 | DSA / algorithm | Implementation | Operational use | Complexity | Verification |
 |---|---|---|---|---|
 | Array | `OperationalArray<T, Capacity>` | Bounded responder candidate evaluations inside `chooseResponder` | access/append O(1), space O(capacity) | capacity behavior and real ranked dispatch candidates |
