@@ -104,6 +104,7 @@ export type Route = {
    ========================================================= */
 
 export type SimulationResponder = {
+  baseFacilityId?: string;
   responderId: string;
 
   type: string;
@@ -149,6 +150,9 @@ export type ActiveDispatch = {
    ========================================================= */
 
 export type SimulationState = {
+  network: AuthoritativeNetwork;
+  facilities: Facility[];
+  dispatches: DispatchRecord[];
   ok: boolean;
 
   bridge: string;
@@ -319,3 +323,41 @@ export type SimulationResponse<T = unknown> = {
 
   [key: string]: unknown;
 };
+
+export type Facility = {
+  facilityId: string; category: string; name: string; locationId: string;
+};
+export type AuthoritativeNetwork = {
+  graphRevision: number;
+  nodes: Array<{ locationId: string; name: string; zone: string; category: string; x: number; y: number; status: string }>;
+  roads: Array<{ roadId: string; from: string; to: string; distance: number; travelTime: number;
+    risk: number; congestion: number; capacity: number; blocked: boolean;
+    roadClass: 'ARTERIAL' | 'PRIMARY' | 'SECONDARY' | 'LOCAL' }>;
+};
+export type RouteMetrics = {
+  reachable: boolean; distance: number; estimatedTravelTime: number; weightedCost: number;
+  /** Sum of edge risk levels. */
+  risk: number;
+  /** Arithmetic mean of edge congestion levels; zero for an empty route. */
+  congestion: number;
+  pathNodes: string[]; pathEdges: string[];
+};
+export type CandidateSummary = RouteMetrics & {
+  responderId: string; responderType: string; startLocationId: string; destinationLocationId: string; graphRevision: number;
+};
+export type DispatchRecord = ActiveDispatch & RouteMetrics & {
+  graphRevision: number; dispatchSequence: number; stale: boolean;
+  selectionReason: 'LOWEST_WEIGHTED_COST' | 'ONLY_REACHABLE_UNIT' | 'LOWER_TRAVEL_TIME_TIEBREAK' |
+    'LOWER_DISTANCE_TIEBREAK' | 'RESPONDER_ID_TIEBREAK' | 'ASSIGNED_RESPONDER_REROUTE';
+  candidateSummaries: CandidateSummary[];
+};
+export type AnalysisEvent = {
+  type: string; algorithm: string; step: number; graphRevision: number;
+  nodeId: string; edgeId: string; message: string;
+  parentNodeId?: string; queueSize?: number; stackSize?: number;
+};
+type AnalysisBase = { source: string; destination: string; graphRevision: number; reachable: boolean; pathNodes: string[]; pathEdges: string[] };
+export type LiveAnalysis = (AnalysisBase & { algorithm: 'BFS'; minimumHops: number | null; visitOrder: string[] }) |
+  (AnalysisBase & { algorithm: 'DFS'; visitOrder: string[] }) |
+  (AnalysisBase & RouteMetrics & { algorithm: 'DIJKSTRA' });
+export type AnalysisResponse = Omit<SimulationResponse<LiveAnalysis>, 'events'> & { events: AnalysisEvent[] };

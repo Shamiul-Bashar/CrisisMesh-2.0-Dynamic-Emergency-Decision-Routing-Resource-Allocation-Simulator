@@ -334,6 +334,12 @@ function simulationBridge(): Plugin {
     name:
       'crisismesh-simulation-bridge',
 
+    closeBundle() {
+      rejectPending('Simulation bridge closed.');
+      child?.kill();
+      child = null;
+    },
+
     configureServer(server) {
       server.middlewares.use(
         '/api/simulation',
@@ -440,6 +446,12 @@ function simulationBridge(): Plugin {
 
                     break;
 
+                  case 'ANALYZE_BFS':
+                  case 'ANALYZE_DFS':
+                  case 'ANALYZE_DIJKSTRA':
+                    command = `${action}|${clean(input.source)}|${clean(input.destination)}`;
+                    break;
+
 
                   /* =============================
                      REPORT EMERGENCY
@@ -450,6 +462,9 @@ function simulationBridge(): Plugin {
                      ============================= */
 
                   case 'REPORT':
+                    if (!clean(input.reportedByUserId)) {
+                      throw new Error('A reporting citizen must be selected.');
+                    }
                     command =
                       `REPORT|` +
                       `${clean(input.type)}|` +

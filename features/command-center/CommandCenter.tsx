@@ -10,12 +10,12 @@ import {
 import DijkstraVisualizer, { type DijkstraFrame } from './DijkstraVisualizer';
 import DSAVisualizer, { type DSAFrame, type DSAAlgorithm } from './DSAVisualizer';
 import MasterDSALab from './MasterDSALab';
-import EmergencyReport from '../emergency/EmergencyReport';
 import {
   createCityGraph, facilities, incidents, responders,
   type Edge, type Facility, type Incident, type LocationType, type Responder, type Vertex
 } from '../../core/graph';
 import { simulationRequest } from '../../core/simulation/api';
+import { graphFromNetwork } from '../../core/simulation/presentation';
 import { isActiveOperationalIncident } from '../../core/simulation/selectors';
 import type { ActiveDispatch, ReportResult, SimulationIncident, SimulationResponse, SimulationState } from '../../core/simulation/types';
 
@@ -34,11 +34,6 @@ const facilityColors: Record<string, string> = {
 const facilityByNode = new Map(facilities.map(f => [f.nodeId, f]));
 const incidentByNode = new Map(incidents.map(i => [i.locationId, i]));
 
-function graphWithBlockedRoads(blockedEdgeIds: string[]) {
-  const graph = createCityGraph();
-  for (const edgeId of blockedEdgeIds) graph.blockEdge(edgeId);
-  return graph;
-}
 const severityClass = (s: string) => s.toLowerCase().replace(/\s+/g, '-');
 type SimulationResult = SimulationResponse<ReportResult>;
 type AuthorUser = {
@@ -132,7 +127,6 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
   const [dsaAlgorithm, setDsaAlgorithm] = useState<DSAAlgorithm>('BFS');
   const [dsaFrame, setDsaFrame] = useState<DSAFrame | null>(null);
   const [dijkstraFrame, setDijkstraFrame] = useState<DijkstraFrame | null>(null);
-  const [reportOpen, setReportOpen] = useState(false);
   const [lastSimulation, setLastSimulation] = useState<SimulationResult | null>(null);
   const [engineState, setEngineState] = useState<SimulationState | null>(null);
   const [selectedEngineIncidentId, setSelectedEngineIncidentId] = useState<string | null>(null);
@@ -150,6 +144,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
       const data = await simulationRequest<SimulationResponse>({ action: 'STATE' });
       if (!data.state) throw new Error('C++ Simulation Development Bridge returned no STATE snapshot.');
       setEngineState(data.state);
+      setG(graphFromNetwork(data.state.network));
       setBridgeStatus('ONLINE');
       const latest = data.state.recentEvents?.[data.state.recentEvents.length - 1];
       setSystemEvent(latest ? `${latest.type.replace(/_/g, ' ')} · ${latest.message}` : 'C++ simulation state synchronized');
@@ -167,7 +162,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
       const data = await simulationRequest<SimulationResponse>({ action: 'UNDO_BLOCK' });
       if (!data.state) throw new Error('The C++ bridge returned no STATE snapshot after undo.');
       setEngineState(data.state); setBridgeStatus('ONLINE');
-      setG(graphWithBlockedRoads(data.state.graph.blockedEdgeIds));
+      setG(graphFromNetwork(data.state.network));
       setSystemEvent('ROAD OPERATION UNDONE · MANUAL STACK');
     } catch (error: unknown) { setSystemEvent(error instanceof Error ? error.message : 'Unable to undo the last road block.'); }
   }, []);
@@ -252,7 +247,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
       const data = await simulationRequest<SimulationResponse>({ action: current.blocked ? 'UNBLOCK' : 'BLOCK', edgeId: id });
       const authoritativeState = data.state;
       if (!authoritativeState) throw new Error('The C++ bridge returned no STATE snapshot after the road operation.');
-      const nextGraph = graphWithBlockedRoads(authoritativeState.graph.blockedEdgeIds);
+      const nextGraph = graphFromNetwork(authoritativeState.network);
       const next = nextGraph.getEdge(id);
       setG(nextGraph);
       if (next) setSelectedRoad({ ...next });
@@ -327,7 +322,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
           <div><span>AVAILABLE UNITS</span><b>{engineState ? String(engineState.analytics.availableResponders).padStart(2, '0') : '—'}</b></div>
           <div><span>BLOCKED ROADS</span><b>{engineState ? String(engineState.graph.blockedRoads).padStart(2, '0') : '—'}</b></div>
         </div>
-        <button className="cc-report-btn" onClick={() => setReportOpen(true)}><AlertTriangle size={14}/> REPORT EMERGENCY</button>
+        <button className="cc-report-btn" disabled title="Citizen selection is required before an author can report on their behalf."><AlertTriangle size={14}/> CITIZEN REPORTING REQUIRED</button>
         <button className="cc-menu" onClick={() => setCollapsedLeft(v => !v)}><Menu size={19} /></button>
       </header>
 
@@ -533,11 +528,10 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
             <div><span className="eyebrow">{selectedIncident ? 'INCIDENT / DISPATCH' : selectedFacility ? 'FACILITY STATUS' : selectedRoad ? 'ROAD INSPECTOR' : selectedNode ? 'NODE INSPECTOR' : 'NETWORK OVERVIEW'}</span><h2>{selectedIncident ? selectedIncident.id : selectedFacility ? selectedFacility.id : selectedRoad ? selectedRoad.id : selectedNode ? selectedNode.id : 'Operational Grid'}</h2></div>
             <div className="detail-head-actions"><button onClick={() => setCollapsedRight(v => !v)} title="Collapse panel"><PanelRightClose size={15} /></button>{(selectedIncident || selectedFacility || selectedNode || selectedRoad) && <button onClick={clearSelection}><X size={15} /></button>}</div>
           </div>
-          {authorModule === 'USER_DB' ? <UserDatabasePanel /> : selectedEngineIncident ? <EngineIncidentPanel incident={selectedEngineIncident} dispatch={selectedEngineDispatch} state={engineState} onRefresh={refreshState} onOpenDijkstra={() => setDijkstraOpen(true)} /> : selectedIncident ? <IncidentPanel incident={selectedIncident} g={g} routing={routing} setRouting={setRouting} onOpenDijkstra={() => setDijkstraOpen(true)} lastSimulation={lastSimulation} /> : selectedFacility && selectedNode ? <FacilityPanel facility={selectedFacility} node={selectedNode} responders={responders} /> : selectedRoad ? <RoadPanel edge={selectedRoad} g={g} toggle={() => toggleRoad(selectedRoad.id)} /> : selectedNode ? <NodePanel node={selectedNode} g={g} onRoad={r => setSelectedRoad({ ...r })} /> : <OverviewPanel g={g} paused={paused} setPaused={setPaused} blocked={blocked} lastSimulation={lastSimulation} bridgeStatus={bridgeStatus} onReport={() => setReportOpen(true)} state={engineState} opsTab={opsTab} setOpsTab={setOpsTab} onProcessNext={processNextIncident} onUndoBlock={undoLastRoadBlock} processing={processing} selectedIncidentId={selectedEngineIncidentId} onRefresh={async () => { await refreshState(); }} />}
+          {authorModule === 'USER_DB' ? <UserDatabasePanel /> : selectedEngineIncident ? <EngineIncidentPanel incident={selectedEngineIncident} dispatch={selectedEngineDispatch} state={engineState} onRefresh={refreshState} onOpenDijkstra={() => setDijkstraOpen(true)} /> : selectedIncident ? <IncidentPanel incident={selectedIncident} g={g} routing={routing} setRouting={setRouting} onOpenDijkstra={() => setDijkstraOpen(true)} lastSimulation={lastSimulation} /> : selectedFacility && selectedNode ? <FacilityPanel facility={selectedFacility} node={selectedNode} responders={responders} /> : selectedRoad ? <RoadPanel edge={selectedRoad} g={g} toggle={() => toggleRoad(selectedRoad.id)} /> : selectedNode ? <NodePanel node={selectedNode} g={g} onRoad={r => setSelectedRoad({ ...r })} /> : <OverviewPanel g={g} paused={paused} setPaused={setPaused} blocked={blocked} lastSimulation={lastSimulation} bridgeStatus={bridgeStatus} onReport={() => {}} state={engineState} opsTab={opsTab} setOpsTab={setOpsTab} onProcessNext={processNextIncident} onUndoBlock={undoLastRoadBlock} processing={processing} selectedIncidentId={selectedEngineIncidentId} onRefresh={async () => { await refreshState(); }} />}
         </aside>
       </div>
 
-      {reportOpen && <EmergencyReport onClose={() => setReportOpen(false)} onSubmitted={(result) => { setLastSimulation(result); refreshState(); }} />}
       <footer className="cc-statusbar">
         <Cell label="SIMULATION" value="DETERMINISTIC / LOCAL" /><Cell label="INCIDENTS" value={engineState ? engineIncidents.length : '—'} warn /><Cell label="RESPONDERS" value={engineState ? engineResponders.length : '—'} /><Cell label="OPEN ROADS" value={engineState?.graph.openRoads ?? g.getOpenEdgeCount()} good /><Cell label="BLOCKED" value={engineState ? blocked : '—'} warn /><Cell label="COMPONENTS" value={g.getConnectedComponents()} /><Cell label="GRAPH" value="ADJACENCY LIST" />
       </footer>
@@ -952,8 +946,8 @@ function OverviewPanel({ g, paused, setPaused, blocked, lastSimulation, bridgeSt
       {!priorityHeap.length && <div className="empty-state">No incidents currently stored in the priority heap.</div>}
     </div>
 
-    {lastSimulation?.result?.incident && <div className="engine-dispatch-card"><div><span>LAST C++ INCIDENT</span><b>{lastSimulation.result.incident.incidentId}</b></div><strong>{lastSimulation.result.incident.type} · PRIORITY {lastSimulation.result.incident.priorityScore}</strong><small>{lastSimulation.result.incident.status} · WAITING FOR COORDINATOR → {lastSimulation.result.incident.locationId}</small><button onClick={onReport}>REPORT ANOTHER EMERGENCY</button></div>}
-    {!lastSimulation?.result?.incident && <button className="wide-action emergency-wide" onClick={onReport}><AlertTriangle size={14}/> REPORT EMERGENCY TO C++ ENGINE</button>}
+    {lastSimulation?.result?.incident && <div className="engine-dispatch-card"><div><span>LAST C++ INCIDENT</span><b>{lastSimulation.result.incident.incidentId}</b></div><strong>{lastSimulation.result.incident.type} · PRIORITY {lastSimulation.result.incident.priorityScore}</strong><small>{lastSimulation.result.incident.status} · WAITING FOR COORDINATOR → {lastSimulation.result.incident.locationId}</small><button disabled title="Citizen selection is required before reporting.">REPORT ANOTHER EMERGENCY</button></div>}
+    {!lastSimulation?.result?.incident && <button className="wide-action emergency-wide" disabled title="Citizen selection is required before reporting."><AlertTriangle size={14}/> REPORT EMERGENCY TO C++ ENGINE</button>}
 
     <div className="section-label">OPERATIONS ANALYTICS</div>
     <div className="analytics-grid">

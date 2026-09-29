@@ -1,9 +1,13 @@
-import type { SimulationResponse } from './types';
+import type { SimulationResponse, AnalysisResponse } from './types';
 
 const BRIDGE_TIMEOUT_MS = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export async function analyzeNetwork(algorithm: 'BFS' | 'DFS' | 'DIJKSTRA', source: string, destination: string): Promise<AnalysisResponse> {
+  return await simulationRequest({ action: `ANALYZE_${algorithm}`, source, destination }) as unknown as AnalysisResponse;
 }
 
 export function isSimulationResponse(value: unknown): value is SimulationResponse {
