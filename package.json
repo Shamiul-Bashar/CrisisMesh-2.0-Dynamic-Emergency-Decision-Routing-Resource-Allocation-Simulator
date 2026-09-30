@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test:phase1": "node --test tests/phase1-auth.test.ts tests/phase1-bridge.test.mjs"
+    "test:phase1": "node --test tests/phase1-auth.test.ts tests/phase1-bridge.test.mjs",
+    "start:backend": "node server/index.mjs"
   },
   "dependencies": {
     "framer-motion": "13.1.1",
