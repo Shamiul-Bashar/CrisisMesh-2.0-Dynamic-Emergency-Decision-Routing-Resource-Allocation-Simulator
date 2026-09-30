@@ -71,25 +71,81 @@ export function routeGeometry(pathNodes: string[], pathEdges: string[], roads: M
 export type PlaybackFrame = {
   outdated: boolean; complete: boolean; visited: Set<string>; explored: Set<string>; branch: Set<string>;
   current: string; backtrack: boolean; finalEdges: string[]; event: AnalysisResponse['events'][number] | null;
+  algorithm: string; source: string; destination: string; revision: number;
+  frontier: Set<string>; visitOrder: string[]; levels: Map<string, number>; finalNodes: Set<string>;
+  activeEdge: string; activeFrom: string; backtrackCount: number; playing: boolean; showOrder: boolean;
 };
+/** Project the consumed C++ events only. Never search neighbors, select routes or calculate costs. */
 export function playbackFrame(analysis: AnalysisResponse | null, count: number, revision: number): PlaybackFrame {
-  const frame: PlaybackFrame = { outdated: false, complete: false, visited: new Set(), explored: new Set(), branch: new Set(), current: '', backtrack: false, finalEdges: [], event: null };
+  const frame: PlaybackFrame = { outdated: false, complete: false, visited: new Set(), explored: new Set(), branch: new Set(), current: '', backtrack: false, finalEdges: [], event: null,
+    algorithm: '', source: '', destination: '', revision, frontier: new Set(), visitOrder: [], levels: new Map(), finalNodes: new Set(), activeEdge: '', activeFrom: '', backtrackCount: 0, playing: false, showOrder: true };
   if (!analysis?.result) return frame;
   frame.outdated=analysis.result.graphRevision!==revision;
   if (frame.outdated) return frame;
+  frame.algorithm=analysis.result.algorithm;
+  frame.source=analysis.result.source;
+  frame.destination=analysis.result.destination;
+  frame.levels.set(frame.source,0);
   const parentEdge = new Map<string,string>();
   for (const event of analysis.events.slice(0, Math.max(0,count))) {
     frame.event=event;
-    if (event.nodeId && /CURRENT_NODE|NODE_VISITED|NODE_EXTRACTED|DESTINATION_REACHED/.test(event.type)) {
+    frame.activeEdge='';frame.activeFrom='';
+    const type=event.type.replace(/^(BFS|DFS)_/,'');
+    if (event.nodeId && ['CURRENT_NODE','NODE_VISITED','NODE_EXTRACTED','DESTINATION_REACHED','SOURCE_EQUALS_DESTINATION'].includes(type)) {
       frame.current=event.nodeId; frame.visited.add(event.nodeId);
+      frame.frontier.delete(event.nodeId);
     }
-    if (event.edgeId) frame.explored.add(event.edgeId);
-    if (event.type==='DFS_NODE_DISCOVERED') { parentEdge.set(event.nodeId,event.edgeId); frame.branch.add(event.edgeId); }
-    if (event.type==='DFS_BACKTRACK') { frame.branch.delete(parentEdge.get(event.nodeId) ?? ''); frame.current=event.parentNodeId ?? ''; }
+    if (['ENQUEUE','PUSH','NODE_DISCOVERED','EDGE_RELAXED','DISTANCE_UPDATED','SOURCE_SELECTED'].includes(type) && event.nodeId && !frame.visited.has(event.nodeId)) frame.frontier.add(event.nodeId);
+    if (['DEQUEUE','POP'].includes(type)) frame.frontier.delete(event.nodeId);
+    if (event.type==='BFS_NODE_DISCOVERED' && event.parentNodeId && frame.levels.has(event.parentNodeId)) frame.levels.set(event.nodeId,frame.levels.get(event.parentNodeId)!+1);
+    if (event.edgeId && !['PATH_EDGE_SELECTED','COMPLETE'].includes(type)) {
+      frame.explored.add(event.edgeId); frame.activeEdge=event.edgeId;
+      frame.activeFrom=event.parentNodeId || (type==='EDGE_EXAMINED'?event.nodeId:frame.current);
+    }
+    if (event.type==='DFS_NODE_DISCOVERED') { parentEdge.set(event.nodeId,event.edgeId); if(event.edgeId)frame.branch.add(event.edgeId); }
+    if (event.type==='DFS_BACKTRACK') {
+      frame.activeEdge=parentEdge.get(event.nodeId) ?? '';frame.activeFrom=event.nodeId;
+      frame.branch.delete(frame.activeEdge); frame.current=event.parentNodeId ?? '';frame.backtrackCount++;
+    }
   }
+  frame.visitOrder=[...frame.visited];
   frame.backtrack=frame.event?.type==='DFS_BACKTRACK';
   frame.complete=count>=analysis.events.length;
-  if (frame.complete && analysis.result.reachable) frame.finalEdges=analysis.result.pathEdges;
+  if (frame.complete) {
+    frame.activeEdge='';
+    if (analysis.result.reachable) {frame.finalEdges=analysis.result.pathEdges;frame.finalNodes=new Set(analysis.result.pathNodes);}
+  }
   return frame;
+}
+export function playbackEventText(frame: PlaybackFrame, name: (id: string) => string) {
+  const event=frame.event;
+  if(frame.outdated)return 'Network changed. Run analysis again.';
+  if(!event)return 'Ready to play the recorded analysis.';
+  const node=name(event.nodeId),type=event.type.replace(/^(BFS|DFS)_/,'');
+  if(frame.backtrack)return event.parentNodeId?`Backtracking to ${name(event.parentNodeId)}`:'Backtracking complete at the source';
+  switch(type) {
+    case 'CURRENT_NODE': return `Exploring ${node}`;
+    case 'NODE_EXTRACTED': case 'NODE_VISITED': return `Settled ${node}`;
+    case 'ENQUEUE': return `Added ${node} to queue`;
+    case 'DEQUEUE': return `Removed ${node} from queue`;
+    case 'PUSH': return `Added ${node} to stack`;
+    case 'POP': return `No unvisited neighbors at ${node}`;
+    case 'NODE_DISCOVERED': return `Discovered ${node}`;
+    case 'NODE_ALREADY_VISITED': return `${node} already discovered`;
+    case 'EDGE_EXAMINED': return `Examining road ${event.edgeId}`;
+    case 'EDGE_RELAXED': return `Relaxed edge ${event.edgeId}`;
+    case 'DISTANCE_CHECKED': return `Checking tentative cost for ${node}`;
+    case 'DISTANCE_UPDATED': return `Updated tentative cost for ${node}`;
+    case 'PREDECESSOR_UPDATED': return `Updated predecessor for ${node}`;
+    case 'SOURCE_SELECTED': return `Source: ${node}`;
+    case 'SOURCE_EQUALS_DESTINATION': return 'Source and destination are identical';
+    case 'DESTINATION_REACHED': return `Reached ${node}`;
+    case 'UNREACHABLE': return 'Destination unreachable';
+    case 'PATH_RECONSTRUCTION': return 'Reading the result path';
+    case 'PATH_EDGE_SELECTED': return `Result path includes ${event.edgeId}`;
+    case 'COMPLETE': return 'Analysis complete';
+    case 'START': return 'Analysis started';
+    default: return event.message || 'Analysis event';
+  }
 }
 export const restartPlayback = () => 0;
