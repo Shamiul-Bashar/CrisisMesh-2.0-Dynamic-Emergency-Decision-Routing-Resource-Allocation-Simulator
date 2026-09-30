@@ -77,11 +77,13 @@ export default function AlgorithmPlayback({ state, dispatch, onFrame, onClose }:
       {frame.event?.stackSize!==undefined && algorithm==='DFS' && <span>Stack <b>{frame.event.stackSize}</b></span>}
       {algorithm==='DFS'&&<span>Backtracks <b>{frame.backtrackCount}</b></span>}
       {algorithm==='BFS'&&frame.levels.has(frame.current)&&<span>Hop level <b>{frame.levels.get(frame.current)}</b></span>}
+      {result?.algorithm==='DIJKSTRA'&&result.reachable&&<span>Route <b>{result.distance.toFixed(2)} km</b></span>}
     </div>
     {frame.complete && !frame.outdated && result && <div className="tm-analysis-result">
-      <strong>{result.reachable?'Destination reached':'Destination unreachable'}</strong>
+      <strong>{result.reachable?'Authoritative route result':'Destination unreachable'}</strong>
+      <small className="tm-result-route">{name(result.source)} → {name(result.destination)}</small>
       {result.algorithm==='BFS' && <span>Minimum hops <b>{result.minimumHops ?? 'Unreachable'}</b></span>}
-      {result.algorithm==='DIJKSTRA' && result.reachable && <><span>Distance <b>{result.distance.toFixed(2)} km</b></span><span>Travel time <b>{result.estimatedTravelTime.toFixed(1)} min</b></span><span>Weighted cost <b>{result.weightedCost.toFixed(2)}</b></span><span>Risk sum <b>{result.risk}</b></span><span>Congestion average <b>{result.congestion.toFixed(2)}</b></span></>}
+      {result.algorithm==='DIJKSTRA' && result.reachable && <><span>Selected route distance <b>{result.distance.toFixed(2)} km</b></span><span>Travel time <b>{result.estimatedTravelTime.toFixed(1)} min</b></span><span>Weighted cost <b>{result.weightedCost.toFixed(2)}</b></span><span>Risk sum <b>{result.risk}</b></span><span>Congestion average <b>{result.congestion.toFixed(2)}</b></span><span>Roads used <b>{result.pathEdges.length}</b></span><small className="tm-result-note">Dijkstra optimizes weighted operational cost. Physical distance is reported for the selected authoritative route.</small></>}
     </div>}</>}
     <footer className="tm-analysis-key"><label><input type="checkbox" checked={showOrder} onChange={e=>setShowOrder(e.target.checked)}/> Visit order</label><span className="frontier">{algorithm==='DIJKSTRA'?'Tentative':'Frontier'}</span><span className="visited">{algorithm==='DIJKSTRA'?'Settled':'Visited'}</span><span className="destination">Destination</span>{algorithm==='DFS'&&<span className="backtrack">Backtrack</span>}</footer>
     </div>
