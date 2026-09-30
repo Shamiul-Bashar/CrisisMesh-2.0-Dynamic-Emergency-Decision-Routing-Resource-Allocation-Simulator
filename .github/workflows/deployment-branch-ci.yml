@@ -1,0 +1,44 @@
+name: Deployment Branch CI
+
+on:
+  push:
+    branches:
+      - deploy/fullstack
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Check deployment server syntax
+        run: node --check server/index.mjs
+
+      - name: Configure C++ backend
+        run: cmake -S backend -B backend/build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ backend
+        run: cmake --build backend/build -j2
+
+      - name: Run C++ tests
+        run: ctest --test-dir backend/build --output-on-failure
+
+      - name: Build deployment container
+        run: docker build -t crisismesh-deployment-check .
