@@ -11,6 +11,7 @@ struct Vertex {
     LocationType type{LocationType::Intersection};
     Coordinate coordinate{};
     std::string status{"OPERATIONAL"};
+    std::string zone{};
 };
 
 } // namespace crisismesh

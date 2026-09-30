@@ -14,6 +14,7 @@ struct Edge {
     int congestionLevel{1};
     int capacity{100};
     bool blocked{false};
+    std::string roadClass{"LOCAL"};
 };
 
 } // namespace crisismesh

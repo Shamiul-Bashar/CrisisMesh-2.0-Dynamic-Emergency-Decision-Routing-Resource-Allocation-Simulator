@@ -9,6 +9,8 @@ struct Responder {
     ResponderAvailability availability{ResponderAvailability::Available};
     int capacity{1};
     bool capabilityVerified{true};
+    std::string baseFacilityId{};
+    std::string assignedIncidentId{};
 };
 const char* toString(ResponderAvailability value);
 } // namespace crisismesh

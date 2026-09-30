@@ -13,14 +13,12 @@ import {
 
 import type {
   SimulationIncident,
+  ReportResult,
   SimulationResponse,
 } from '../../core/simulation/types';
 
 
-type SimulationReportResponse =
-  SimulationResponse & {
-    incident: SimulationIncident;
-  };
+type SimulationReportResponse = SimulationResponse<ReportResult>;
 
 
 type Props = {
@@ -126,11 +124,7 @@ export default function EmergencyReport({
   const pipeline =
     useMemo(
       () => {
-        const events =
-          result
-            ?.events
-            ?.events ??
-          [];
+        const events = result?.events ?? [];
 
         const types =
           new Set(
@@ -229,11 +223,7 @@ export default function EmergencyReport({
           });
 
 
-        if (
-          !data
-            .incident
-            ?.incidentId
-        ) {
+        if (!data.result?.incident?.incidentId) {
           throw new Error(
             'The C++ bridge returned an incomplete incident record.'
           );
@@ -326,7 +316,7 @@ export default function EmergencyReport({
         </header>
 
 
-        {!result ? (
+        {!result?.result?.incident ? (
 
           <form
             onSubmit={
@@ -621,9 +611,7 @@ export default function EmergencyReport({
 
             <h3>
               {
-                result
-                  .incident
-                  .incidentId
+                result.result.incident.incidentId
               }
             </h3>
 
@@ -685,9 +673,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .priorityScore
+                    result.result.incident.priorityScore
                   }
                 </b>
               </div>
@@ -700,9 +686,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .status
+                    result.result.incident.status
                   }
                 </b>
               </div>
@@ -715,9 +699,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .type
+                    result.result.incident.type
                   }
                 </b>
               </div>
@@ -730,9 +712,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .locationId
+                    result.result.incident.locationId
                   }
                 </b>
               </div>
@@ -745,15 +725,11 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .severity
+                    result.result.incident.severity
                   }
                   {' / '}
                   {
-                    result
-                      .incident
-                      .urgency
+                    result.result.incident.urgency
                   }
                 </b>
               </div>
@@ -766,9 +742,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .victimCount
+                    result.result.incident.victimCount
                   }
                 </b>
               </div>
@@ -781,9 +755,7 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result
-                      .incident
-                      .assignedResponderId ||
+                    result.result.incident.assignedResponderId ||
                     'NOT YET ASSIGNED'
                   }
                 </b>

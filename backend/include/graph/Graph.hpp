@@ -22,6 +22,8 @@ namespace crisismesh {
 // ================================================================
 class Graph {
 public:
+    std::size_t revision() const { return revision_; }
+    void replaceWith(Graph replacement);
     bool addVertex(const Vertex& vertex);
     bool removeVertex(const std::string& vertexId);
 
@@ -50,6 +52,7 @@ public:
     const std::unordered_map<std::string, Edge>& edges() const { return edges_; }
 
 private:
+    std::size_t revision_{0};
     std::unordered_map<std::string, Vertex> vertices_;
     std::unordered_map<std::string, Edge> edges_;
     std::unordered_map<std::string, std::vector<std::string>> adjacency_;

@@ -32,7 +32,8 @@ Graph createCrisisMeshCity() {
         {"LOC-024","West Junction",LocationType::Intersection,{32,50},"OPERATIONAL"}
     };
 
-    for (const auto& vertex : vertices) {
+    for (auto vertex : vertices) {
+        vertex.zone = vertex.coordinate.y < 30 ? "NORTH" : vertex.coordinate.y > 70 ? "SOUTH" : vertex.coordinate.x < 35 ? "WEST" : vertex.coordinate.x > 65 ? "EAST" : "CENTRAL";
         graph.addVertex(vertex);
     }
 
@@ -81,7 +82,8 @@ Graph createCrisisMeshCity() {
         {"R-042","LOC-021","LOC-017",1.3,3,1,2,70,false}
     };
 
-    for (const auto& edge : edges) {
+    for (auto edge : edges) {
+        edge.roadClass = edge.capacity >= 75 ? "ARTERIAL" : edge.capacity >= 70 ? "PRIMARY" : edge.capacity >= 60 ? "SECONDARY" : "LOCAL";
         graph.addEdge(edge);
     }
 

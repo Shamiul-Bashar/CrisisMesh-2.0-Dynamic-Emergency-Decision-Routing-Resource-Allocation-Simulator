@@ -1,6 +1,29 @@
-import type { SimulationResponse } from './types';
+import type { SimulationResponse, AnalysisResponse } from './types';
 
 const BRIDGE_TIMEOUT_MS = 10_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export async function analyzeNetwork(algorithm: 'BFS' | 'DFS' | 'DIJKSTRA', source: string, destination: string): Promise<AnalysisResponse> {
+  return await simulationRequest({ action: `ANALYZE_${algorithm}`, source, destination }) as unknown as AnalysisResponse;
+}
+
+export function isSimulationResponse(value: unknown): value is SimulationResponse {
+  if (!isRecord(value) || typeof value.ok !== 'boolean' || !Array.isArray(value.events)) {
+    return false;
+  }
+  if (!('state' in value) || !('result' in value)) return false;
+  if (!value.ok) {
+    return value.state === null && typeof value.error === 'string';
+  }
+  if (!isRecord(value.state)) return false;
+  const state = value.state;
+  return state.ok === true && state.engine === 'ONLINE' &&
+    isRecord(state.graph) && Array.isArray(state.incidents) &&
+    Array.isArray(state.responders) && Array.isArray(state.activeDispatches);
+}
 
 export async function simulationRequest<T extends SimulationResponse = SimulationResponse>(
   payload: Record<string, unknown>,
@@ -16,18 +39,22 @@ export async function simulationRequest<T extends SimulationResponse = Simulatio
       signal: controller.signal,
     });
 
-    let data: T;
+    let data: unknown;
     try {
-      data = (await response.json()) as T;
+      data = await response.json();
     } catch {
       throw new Error('The C++ Simulation Development Bridge returned invalid JSON.');
     }
 
-    if (!response.ok || data.ok === false) {
+    if (!isSimulationResponse(data)) {
+      throw new Error('The C++ Simulation Development Bridge returned an invalid response contract.');
+    }
+
+    if (!response.ok || !data.ok) {
       throw new Error(data.error || data.message || 'C++ Simulation Development Bridge unavailable.');
     }
 
-    return data;
+    return data as T;
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('C++ Simulation Development Bridge request timed out.');

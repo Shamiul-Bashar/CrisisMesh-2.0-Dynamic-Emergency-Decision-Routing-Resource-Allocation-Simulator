@@ -5,6 +5,12 @@
 
 namespace crisismesh {
 
+void Graph::replaceWith(Graph replacement) {
+    const auto nextRevision = std::max(revision_, replacement.revision_) + 1;
+    *this = std::move(replacement);
+    revision_ = nextRevision;
+}
+
 bool Graph::containsEdgeId(const std::vector<std::string>& ids, const std::string& edgeId) {
     return std::find(ids.begin(), ids.end(), edgeId) != ids.end();
 }
@@ -15,6 +21,7 @@ bool Graph::addVertex(const Vertex& vertex) {
     }
     vertices_.emplace(vertex.id, vertex);
     adjacency_.emplace(vertex.id, std::vector<std::string>{});
+    ++revision_;
     return true;
 }
 
@@ -31,6 +38,7 @@ bool Graph::removeVertex(const std::string& vertexId) {
 
     adjacency_.erase(vertexId);
     vertices_.erase(it);
+    ++revision_;
     return true;
 }
 
@@ -48,6 +56,7 @@ bool Graph::addEdge(const Edge& edge) {
     edges_.emplace(edge.id, edge);
     adjacency_.at(edge.from).push_back(edge.id);
     adjacency_.at(edge.to).push_back(edge.id);
+    ++revision_;
     return true;
 }
 
@@ -66,6 +75,7 @@ bool Graph::removeEdge(const std::string& edgeId) {
     eraseFrom(edge.from);
     eraseFrom(edge.to);
     edges_.erase(it);
+    ++revision_;
     return true;
 }
 
@@ -117,6 +127,7 @@ bool Graph::blockEdge(const std::string& edgeId) {
     if (it == edges_.end()) {
         return false;
     }
+    if (!it->second.blocked) ++revision_;
     it->second.blocked = true;
     return true;
 }
@@ -126,6 +137,7 @@ bool Graph::unblockEdge(const std::string& edgeId) {
     if (it == edges_.end()) {
         return false;
     }
+    if (it->second.blocked) ++revision_;
     it->second.blocked = false;
     return true;
 }

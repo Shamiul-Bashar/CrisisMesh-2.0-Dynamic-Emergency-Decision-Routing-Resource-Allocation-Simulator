@@ -1,489 +1,213 @@
 # CrisisMesh 2.0
 
-**Dynamic Emergency Decision, Routing & Resource-Allocation Simulator**
+CrisisMesh 2.0 is a deterministic emergency decision, routing, and resource-allocation simulator built for university DSA evaluation. A C++17 `SimulationEngine` owns operational decisions, while a React and TypeScript interface provides the Emergency Operations Center, tactical map, citizen portal, and algorithm playback.
 
-CrisisMesh is a DSA-centered emergency-response simulation platform designed to model how limited responders, shelters, supplies, and road networks can be coordinated during a changing disaster scenario.
+This is an academic simulator. It does not connect to real emergency services, GPS, municipal systems, or production identity infrastructure.
 
-The project combines a **C++17 simulation/algorithm core** with a **React + TypeScript operational visualization layer**, connected through an API boundary. It is a deterministic, DSA-driven Emergency Operations Center simulator where incident reports, responder assignment, routing, and road changes are modeled in a controlled academic environment.
+## Problem Statement
 
-It is **not** a real emergency service, GPS system, AI/ML predictor, government integration, production dispatch platform, or production identity system.
+Emergency coordination must prioritize competing incidents, find compatible responders, route around unavailable roads, preserve a clear incident lifecycle, and explain why each decision was made. CrisisMesh models those responsibilities on a fictional city network while exposing the manually implemented data structures and algorithms that support them.
+
+## Core Workflow
+
+```text
+Citizen report
+  → FIFO intake Queue
+  → deterministic priority triage
+  → Max Heap scheduling
+  → compatible responder evaluation
+  → Merge Sort candidate ordering
+  → weighted Dijkstra routing
+  → dispatch and tactical visualization
+  → response completion
+  → citizen YES / NO confirmation
+  → closed archive or escalated/requeued incident
+```
+
+## Key Features
+
+- Author Emergency Operations Center backed by live C++ state
+- Citizen reporting, response tracking, messages, history, and profile
+- A 24-node, 42-road fictional city graph
+- Compatible responder ranking with auditable route metrics
+- Road blocking, rerouting, unreachable-route handling, and Stack-based undo
+- BFS, DFS, and Dijkstra analysis on the current graph revision
+- Multi-incident tactical routes and deterministic responder allocation
+- Incident ownership checks for confirmation and escalation
+- Compact DSA Architecture view and optional C++ Implementation Inspector
+- Automated frontend, bridge, integration, and native C++ tests
+
+## DSA Used
+
+| DSA | C++ module | Real CrisisMesh use | Main complexity |
+|---|---|---|---|
+| Array | `OperationalArray<T, Capacity>` | Bounded responder candidate buffer | access/append O(1) |
+| Linked List | `LinkedList` | Chronological resolved-incident history | append O(1), traversal O(n) |
+| Stack | `Stack<T>` | Road-block undo and DFS traversal | push/pop O(1) amortized |
+| Queue | `Queue<T>` | FIFO incident intake and BFS frontier | enqueue/dequeue O(1) amortized |
+| AVL Tree | `IncidentArchiveIndex` | Balanced index of closed incidents | insert/search O(log n) |
+| Binary Search | `LocationDirectory` | Validating locations in a sorted directory | O(log n) |
+| Merge Sort | `CandidateMergeSort` | Deterministic responder candidate ranking | O(n log n), O(n) space |
+| Max Heap | `MaxHeap` | Selecting the highest-priority waiting incident | insert/extract O(log n) |
+| Min Heap | `MinHeap` | Dijkstra's lowest-cost frontier | push/pop O(log n) |
+| Hash Table | `HashTable` | Incident ID lookup | average O(1), worst O(n) |
+| Graph | `Graph` | City road network and blocked-road state | neighbor scan O(degree) |
+| BFS | `BFS` | Minimum-hop analysis on open roads | O(V + E) |
+| DFS | `DFS` | Reachability traversal with backtracking | O(V + E) |
+| Dijkstra | `Dijkstra` | Lowest weighted operational route | O((V + E) log V) |
+
+Exact implementation and test evidence is documented in [`docs/DSA_REQUIREMENTS_MAPPING.md`](docs/DSA_REQUIREMENTS_MAPPING.md).
 
 ## Architecture
 
 ```text
 React / TypeScript
-        ↓
-Vite Development Bridge (/api/simulation)
-        ↓
-crisismesh_simulation_cli --server
-        ↓
+        ↓ POST /api/simulation
+Vite development bridge
+        ↓ persistent line protocol
 C++17 SimulationEngine
         ↓
-Manual DSA + deterministic decision logic
-        ↓
-JSON STATE / event history / traces
-        ↓
-React Command Center + SVG map + DSA Lab
+Manual DSA, authoritative state, events, and analysis results
 ```
 
-**Authority rule:** C++ is authoritative for incident creation, priority, queueing, Max Heap scheduling, responder eligibility/ranking, Dijkstra routing, road blocking/rerouting, allocation, lifecycle, resolution, and history. React is a presentation/controller layer and does not run a competing operational algorithm.
+The C++ engine is authoritative for incident creation, triage, priority, scheduling, responder compatibility, candidate ranking, routing, road state, rerouting, lifecycle transitions, allocation, and incident history. React sends commands and renders returned state. It does not choose responders, calculate priority, or calculate routes.
 
-## Core capabilities
+The Vite bridge validates browser requests, forwards them to `crisismesh_simulation_cli --server`, and returns the C++ JSON response envelope. It is development infrastructure rather than a deployed backend.
 
-- Dynamic emergency prioritization
-- Graph-based road-network modelling
-- Shortest-path routing with Dijkstra
-- BFS / DFS graph traversal
-- Road blocking and rerouting
-- Responder dispatch and coordination
-- Shelter allocation
-- Supply allocation
-- Event-driven deterministic simulation
-- Algorithm execution tracing
-- React-based operational visualization
-- Automated backend tests with CTest
+## Routing Model
 
-## Data Structures & Algorithms
-
-| Component | Role |
-|---|---|
-| Graph / adjacency lists | Disaster road network |
-| Binary Min Heap | Dijkstra and simulation event scheduling |
-| Binary Max Heap | Emergency prioritization |
-| Queue | FIFO processing |
-| Stack | LIFO processing / traversal support |
-| Linked List | Dynamic sequential storage |
-| AVL Tree | Balanced ordered data |
-| Hash Table | Fast indexed lookup |
-| BFS / DFS | Network traversal |
-| Dijkstra | Emergency routing |
-| Merge Sort | Ordered data processing |
-| Binary Search | Fast lookup |
-| AlgorithmTrace | Explainable algorithm execution |
-
-## Repository structure
+Each road contains distance, travel time, risk, congestion, capacity, and blocked state. Dijkstra minimizes the non-negative weighted cost:
 
 ```text
-CrisisMesh/
-├── backend/
-│   ├── include/
-│   ├── src/
-│   ├── tests/
-│   └── CMakeLists.txt
-├── core/
-│   ├── graph/
-│   └── simulation/
-├── features/
-│   ├── command-center/
-│   └── emergency/
-├── public/
-│   └── data/
-├── src/
-├── components/
-├── index.html
-├── package.json
-├── vite.config.ts
-├── .gitignore
-├── README.md
-└── style.css
+distance
++ 0.35 × travel time
++ 0.75 × risk
++ 0.45 × congestion
++ 0.03 × max(0, 70 - capacity)
 ```
 
-## Operational workflow
+Blocked roads are excluded. Candidate responders are evaluated with the current graph, then ranked by reachability, weighted cost, travel time, distance, and responder ID. A road change on an active route triggers authoritative rerouting and advances the graph revision.
+
+## Incident Lifecycle
 
 ```text
-REPORT
-  ↓
-Incident created by C++
-  ↓
-Manual FIFO Queue
-  ↓
-PROCESS NEXT INCIDENT
-  ↓
-Triage + priority calculation
-  ↓
-Manual Max Heap extraction
-  ↓
-Compatible responder evaluation
-  ↓
-Graph + Manual Min Heap + Dijkstra
-  ↓
-ASSIGNED / EN_ROUTE
-  ↓
-BLOCK → REROUTE_REQUIRED → Dijkstra reroute
-  ↓
-RESOLVED → CLOSED
-  ↓
-Manual Linked List history
+QUEUED
+  → TRIAGED
+  → PRIORITY_CALCULATED
+  → ASSIGNED / EN_ROUTE
+  → RESPONSE_COMPLETED
+  → AWAITING_USER_CONFIRMATION
+     ├─ YES → RESOLVED → CLOSED
+     └─ NO + reason → ESCALATED → QUEUED
 ```
 
-`REPORT` intentionally does **not** automatically dispatch. This preserves the educational Queue → Max Heap → PROCESS NEXT demonstration.
+Road changes can temporarily produce `REROUTE_REQUIRED` or `UNREACHABLE`. Closed incidents leave active operations and enter the archive/history structures.
 
-## Decision explanation
+## Tactical Map
 
-The Command Center exposes the reasoning emitted by the C++ engine:
+The SVG tactical map renders the authoritative network, facilities, responders, incidents, active dispatches, and candidate routes. It supports multiple simultaneous routes, congestion and risk layers, blocked-road controls, BFS/DFS/Dijkstra live analysis, and route inspection.
 
-- **Why this incident?** Priority score plus severity, urgency, victim and incident-type contribution.
-- **Why this responder?** Candidate responder route costs and reachability emitted by the C++ allocation/route evaluation.
-- **Why this route?** C++ Dijkstra returns route cost, distance, travel time, path nodes and path edges.
+Every saved dispatch and analysis result carries a graph revision. Playback is invalidated when its revision no longer matches current topology, preventing stale paths from appearing current. Simulated responder movement is presentation-only and never mutates C++ state.
 
-React displays these returned decisions; it does not recompute them.
+## Author Features
 
-## Getting started
+- Prioritized incident queue and explicit `Process next` control
+- Selected responder, candidate comparison, route metrics, and incident timeline
+- Tactical road blocking, reopening, rerouting, and Stack undo
+- BFS, DFS, and Dijkstra analysis against the live graph
+- Responder availability and resource overview
+- Registered-user directory without credential fields
+- Direct citizen messages and broadcast announcements
+- DSA Architecture view and optional Implementation Inspector
+
+## Citizen Features
+
+- Registration, login, local session identity, and password recovery flows
+- Emergency reporting tied to the authenticated citizen ID
+- Owner-filtered active incidents and closed history
+- Citizen-friendly lifecycle and responder information
+- YES resolution confirmation and NO escalation with a required reason
+- Direct and broadcast messages with recipient privacy
+- Safe profile fields without password, hash, OTP, or environment values
+
+## Build / Run Instructions
 
 ### Requirements
 
-- Node.js 22+
-- npm
-- C++17 compiler
-- CMake 3.16+
-- Git
+- Windows 10 or 11
+- Node.js 22.12 or newer
+- npm 10 or newer
+- CMake 3.16 or newer
+- A C++17 compiler supported by CMake
+- Ninja or Visual Studio Build Tools
 
-### Frontend
+### 1. Install frontend dependencies
 
-```bash
+From the repository root in PowerShell:
+
+```powershell
 npm install
-npm run dev -- --host 0.0.0.0
 ```
 
-### Backend
+The committed `package-lock.json` records the verified dependency graph.
 
-```bash
+### 2. Configure and build the C++ engine
+
+```powershell
 cmake -S backend -B backend/build
-cmake --build backend/build -j2
-ctest --test-dir backend/build --output-on-failure
+cmake --build backend/build
 ```
 
-## User workflow
+### 3. Start CrisisMesh
 
-```text
-Home
- ↓
-User Registration / Login
- ↓
-Demo Verification Code
- ↓
-User Dashboard
- ↓
-Report Emergency
- ↓
-C++ STATE
- ↓
-Active Requests / History
+```powershell
+npm run dev -- --host 127.0.0.1
 ```
 
-This is **demo authentication only**. There is no server-side identity provider, SMS/email delivery, or production security system.
+Open `http://127.0.0.1:5173/`. Vite starts the persistent C++ bridge process when the browser first requests simulation state.
 
-## Author / Emergency Coordinator
+### 4. Create a production frontend bundle
 
-There is one coordinator role. The Author Command Center can:
-
-- inspect the C++ incident queue and priority heap
-- process the next incident explicitly
-- inspect responders and availability
-- inspect returned routes and Dijkstra traces
-- block and unblock roads
-- undo the latest recorded road block using the manual Stack
-- resolve incidents
-- inspect timeline/pipeline/history
-- run DSA visualizations
-- inspect deterministic allocation/resource state
-
-Manual operational actions are emitted into the C++ event history where supported.
-
-## Project summary
-
-CrisisMesh 2.0 is an academic simulation platform that combines a deterministic emergency-response engine with a live visual interface. It is designed for demonstrating routing, prioritization, responder allocation, and DSA-driven emergency decision logic in a realistic but controlled project environment.
-
-
-The existing React SVG map is preserved. It contains graph vertices, roads, facilities and simulated emergency/responder markers. Map geometry is presentation-only. C++ state controls blocked roads, incidents, responders and active routes.
-
-There is no external map service, GPS feed, or real-world municipal data connection.
-
-## Dynamic road blocking
-
-```text
-BLOCK ROAD
-  ↓
-C++ Graph.blockEdge()
-  ↓
-Active route inspection
-  ↓
-REROUTE_REQUIRED
-  ↓
-C++ Dijkstra
-  ↓
-REROUTE_CALCULATED
-```
-
-If no route exists, the engine reports `DESTINATION_UNREACHABLE` / `UNREACHABLE`. Blocked edges remain in the graph topology and are excluded from routing.
-
-## DSA Lab honesty
-
-The existing execution visualizers are explicitly labeled **C++17 DSA / PRE-GENERATED TRACE** when they consume packaged traces. They do not pretend that JavaScript is executing the C++ algorithms.
-
-The **Master DSA Lab** adds real C++-generated traces for:
-
-- BST
-- AVL
-- six sorting algorithms
-- linear/binary search
-- sparse matrix
-- expression processing
-
-The trace source is `crisismesh_trace_exporter`; React only animates/displays the exported JSON.
-
-## Bridge protocol
-
-The Vite development bridge translates browser requests into the persistent C++ CLI protocol:
-
-```text
-STATE
-REPORT|TYPE|LOCATION|SEVERITY|URGENCY|VICTIMS|DESCRIPTION
-PROCESS_NEXT
-BLOCK|EDGE_ID
-UNBLOCK|EDGE_ID
-UNDO_BLOCK
-SET_RESPONDER|RESPONDER_ID|AVAILABILITY
-RESOLVE|INCIDENT_ID
-RESET
-```
-
-The bridge handles missing executables, process errors, malformed JSON, timeouts, unsupported commands and empty/invalid responses. It reports `CHECKING`, `ONLINE`, `OFFLINE` or `ERROR` rather than making production/live claims.
-
-The bridge is intentionally **development-only**. No production REST service, WebSocket service, database, GPS, SMS, EMS authority connection, or cloud infrastructure is required by the final academic artifact.
-
-## State authority and persistence
-
-Operational precedence is:
-
-```text
-C++ STATE > current React state > static TypeScript map/context
-```
-
-LocalStorage is limited to demo user/session information. It does not restore or override operational incidents, queue, heap, responders, routes, blocked roads, lifecycle, or history.
-
-Simulation state is in-memory and is reset by the C++ process or `RESET`.
-
-## Build and run
-
-### C++17
-
-```bash
-cmake -S backend -B backend/build
-cmake --build backend/build -j2
-```
-
-Start the development bridge executable through Vite, or run the CLI directly:
-
-```bash
-backend/build/crisismesh_simulation_cli --server
-```
-
-Generate packaged DSA traces from `backend/build`:
-
-```bash
-backend/build/crisismesh_trace_exporter --algorithm=structures
->>>>>>> 6bc3a11 (feat: add CrisisMesh 2.0 emergency routing simulator)
-```
-
-### Frontend
-
-<<<<<<< HEAD
-Requirements:
-
-- Node.js 18+
-- npm
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Production build:
-
-```bash
+```powershell
 npm run build
 ```
 
-## Simulation model
-
-A scenario contains a road graph plus operational entities such as:
-
-- emergencies
-- responders
-- shelters
-- supply sources
-- road conditions
-- simulation events
-
-The simulation advances deterministically. When a road becomes unavailable, affected routes can be recalculated against the current graph state rather than relying on a static precomputed path.
-
-## Design principles
-
-### DSA-first
-
-The project intentionally uses custom data structures rather than hiding the core logic behind STL containers for the principal DSA components.
-
-### Deterministic behaviour
-
-Tie-breaking and scenario processing are designed to remain reproducible, making the system suitable for demonstrations, testing, and algorithm analysis.
-
-### Explainable decisions
-
-Algorithm traces expose important intermediate decisions so that routing, prioritization, and simulation behaviour can be inspected rather than treated as a black box.
-
-### Separation of concerns
-
-The simulation core, transport/API boundary, shared contracts, and visualization layer are kept separate so individual team members can work on different layers with fewer conflicts.
+The production bundle validates the frontend but does not replace the development bridge with a deployed server.
 
 ## Testing
 
-The backend includes tests covering:
+Run from the repository root:
 
-- data structures
-- graph algorithms
-- emergency / responder / shelter / supply engines
-- simulation behaviour
-- API integration
-
-Run all backend tests with:
-
-```bash
+```powershell
+npm run test:phase1
+node --test tests/phase3-bridge.test.mjs
+node --test tests/phase4-map.test.ts
+node --test tests/phase6-citizen.test.ts tests/phase6-citizen-bridge.test.mjs
+npm run typecheck
+npm run build
+cmake --build backend/build
 ctest --test-dir backend/build --output-on-failure
 ```
 
-## Team workflow
+Latest verified matrix:
 
-Recommended workflow:
+- Phase 1 authentication and bridge: 6 tests
+- Phase 3 HTTP bridge: 1 test
+- Phase 4 map presentation: 18 tests
+- Phase 6 citizen ownership and lifecycle: 7 tests
+- Native CTest: 23 tests
+- TypeScript typecheck and production build: passing
 
-```text
-main
- └── feature/<module-name>
-      └── pull request → review → main
-```
+## Project Limitations
 
-Use focused commits such as:
+- The development bridge and C++ simulation state are in-memory.
+- Incidents, dispatches, road changes, and analysis state reset when the engine process restarts.
+- Demo user, session, and message persistence uses browser `localStorage`.
+- The city is fictional and has no real GPS, Mapbox, Google Maps, or municipal feed.
+- Responder route movement is simulated presentation and does not represent live vehicles.
+- The Vite bridge is local development infrastructure, not a production service.
+- Authentication is suitable for an academic demonstration, not production identity security.
 
-```text
-feat: add responder allocation
-fix: correct dijkstra rerouting
-test: add shelter allocation cases
-docs: update architecture guide
-refactor: simplify simulation event handling
-```
+## Team / Academic Purpose
 
-Do not commit generated build directories, dependency folders, IDE metadata, or local environment files.
-
-## Academic scope
-
-CrisisMesh is a **simulation and decision-support project**, not a production emergency-dispatch system. It does not claim to provide live GPS, real-world emergency guarantees, medical advice, or predictive disaster intelligence.
-
-## Project status
-
-**Active university team project — CrisisMesh 2.0**
-
-The repository is organized around a modular C++ simulation backend and a React visualization frontend. Additional documentation is available under `docs/`.
-
-## License
-
-Add the team's selected open-source license before public release.
-=======
-```bash
-npm install --no-audit --no-fund
-npx tsc --noEmit
-npm run build
-npm run dev
-```
-
-> Dependency note: the supplied final baseline uses exact direct dependency versions but has no `package-lock.json`. Generate the lockfile on a network-enabled development machine before any dependency-sensitive submission build; do not substitute an invented lockfile.
-
-The supplied baseline pins all direct frontend dependency versions in `package.json`, but it does not contain a `package-lock.json`. The verification environment could not reach the npm registry, so a lockfile could not be generated honestly and dependency installation timed out. Therefore project-dependency TypeScript verification, the Vite production build, and browser verification are **not claimed as PASS** for this final archive.
-
-## Testing
-
-The C++ build and regression suite are verified with CMake. The suite includes:
-
-- Graph
-- Queue
-- Stack
-- Linked List
-- Hash Table
-- Max Heap
-- BFS
-- DFS
-- Dijkstra
-- Incident
-- Dispatch
-- Simulation
-- Simulation state
-- Reroute / unreachable
-- multi-incident regression
-- allocation regression
-- responder-shortage regression
-- deterministic end-to-end regression
-- final integration regression
-- DSA Lab
-- Final master integration
-
-The bridge smoke path was also executed directly against `simulation_cli --server`, including `STATE`, `RESET`, `REPORT`, `PROCESS_NEXT`, `BLOCK`, `UNDO_BLOCK`, `UNBLOCK`, `RESOLVE`, and an invalid command. Returned lines were parsed as JSON and the process remained usable after the invalid command.
-
-## Viva demo script
-
-1. Build the C++ engine.
-2. Start Vite with the local C++ development bridge available.
-3. Explain that authentication is demo-only.
-4. Open the Author Command Center.
-5. Show bridge status and the SVG city map.
-6. Report two or three incidents.
-7. Show FIFO intake order.
-8. Click **PROCESS NEXT INCIDENT**.
-9. Explain triage → priority calculation → manual Max Heap extraction.
-10. Show responder candidates and the selected responder.
-11. Explain the C++ Dijkstra route and manual Min Heap.
-12. Block an active route edge and show `REROUTE_REQUIRED`.
-13. Show the new route or unreachable result.
-14. Unblock / undo the road operation.
-15. Resolve the incident and show Linked List history.
-16. Open the Master DSA Lab and demonstrate BST, AVL, sorting/searching, sparse matrix and expression processing traces.
-17. Reset the engine.
-
-### Viva questions
-
-**Why Queue?** Incoming emergencies arrive in FIFO order before coordinator processing.
-
-**Why Max Heap?** The coordinator needs the highest-priority waiting incident without sorting the entire UI collection.
-
-**Why Min Heap?** Dijkstra needs an efficient next-lowest-cost frontier.
-
-**Why Dijkstra?** The road weights are non-negative and the algorithm gives the lowest operational route cost; it can be rerun after a road block.
-
-**Why Graph?** The city is naturally a vertex/edge network.
-
-**Why Hash Table?** Incident IDs need fast lookup inside the engine.
-
-**Why Linked List?** It demonstrates a manual history structure for resolved incidents.
-
-**Why Stack?** DFS uses LIFO exploration and the Author road-control workflow records road blocks for undo.
-
-**Why BST/AVL?** They provide explicit ordered/balanced indexing demonstrations without relying on STL tree containers.
-
-**Why not STL replacements?** The assessed academic requirement is to demonstrate the manual DSA implementations directly.
-
-**Why C++ authoritative?** One authoritative decision engine prevents React from silently producing different operational decisions.
-
-## Known limitations
-
-- The simulation is deterministic and in-memory.
-- The Vite bridge is a local development bridge, not a production backend.
-- User authentication is a local demo flow.
-- User requests are not associated with a server-side identity because there is no production database/auth service.
-- The SVG map is a fictional modeled city, not GPS or a live map.
-- Responder movement is represented through simulation state rather than physical vehicle tracking.
-- Packaged DSA visualizers use C++-generated traces; they are not a browser-native C++ runtime.
-- npm dependency installation and browser verification were not available in the current environment, so those results remain unverified.
-
-## Final architecture statement
-
-> **CRISISMESH FINAL** is a professional academic Emergency Operations Center simulator whose operational decisions are produced by a deterministic C++17 SimulationEngine using manually implemented DSA structures. React/TypeScript provides the command interface, SVG city visualization, demo access flow, and DSA trace presentation through a local Vite development bridge.
->>>>>>> 6bc3a11 (feat: add CrisisMesh 2.0 emergency routing simulator)
+CrisisMesh 2.0 was built as a university project to demonstrate how manual data structures and algorithms can support a coherent emergency coordination workflow. The interface keeps those implementation choices visible for evaluation while the C++ engine remains the single source of operational truth.

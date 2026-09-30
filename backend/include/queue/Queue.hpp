@@ -5,20 +5,11 @@
 
 namespace crisismesh {
 
-// ================================================================
 // DSA: Queue (FIFO)
-// CrisisMesh role:
-// New emergency reports are first inserted into a manual FIFO queue before the
-// system evaluates triage, priority, and dispatch order. This preserves the
-// chronological intake sequence that the academic workflow expects.
-//
-// Why it matters:
-// The queue provides a predictable report intake pipeline. It ensures that
-// incoming incidents are not processed out of arrival order before priority is
-// applied.
-// Time complexity: enqueue O(1) amortized, dequeue O(1), size O(1)
-// Space complexity: O(n)
-// ================================================================
+// Operational role: receives emergencies in FIFO order and drives BFS traversal.
+// Why it matters: arrival order is preserved before priority triage begins.
+// Time complexity: enqueue O(1) amortized; dequeue/front O(1).
+// Space complexity: O(n).
 template <typename T>
 class Queue {
 public:

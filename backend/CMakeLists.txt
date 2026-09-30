@@ -20,8 +20,12 @@ add_library(crisismesh_engine
     src/domain/Responder.cpp
     src/heap/MaxHeap.cpp
     src/simulation/SimulationEngine.cpp
+    src/simulation/OperationalData.cpp
     src/allocation/AllocationEngine.cpp
     src/dsa/DSALab.cpp
+    src/search/LocationDirectory.cpp
+    src/sort/CandidateMergeSort.cpp
+    src/tree/IncidentArchiveIndex.cpp
 )
 target_include_directories(crisismesh_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(MSVC)
@@ -85,6 +89,8 @@ target_link_libraries(crisismesh_dsa_lab_test PRIVATE crisismesh_engine)
 
 add_executable(crisismesh_final_master_integration_test tests/final_master_integration_test.cpp)
 target_link_libraries(crisismesh_final_master_integration_test PRIVATE crisismesh_engine)
+add_executable(crisismesh_operational_dsa_test tests/operational_dsa_test.cpp)
+target_link_libraries(crisismesh_operational_dsa_test PRIVATE crisismesh_engine)
 
 add_test(NAME crisismesh_graph_test COMMAND crisismesh_graph_test)
 add_test(NAME crisismesh_dijkstra_test COMMAND crisismesh_dijkstra_test)
@@ -107,3 +113,7 @@ add_test(NAME crisismesh_phase9_end_to_end_test COMMAND crisismesh_phase9_end_to
 add_test(NAME crisismesh_phase10_final_integration_test COMMAND crisismesh_phase10_final_integration_test)
 add_test(NAME crisismesh_dsa_lab_test COMMAND crisismesh_dsa_lab_test)
 add_test(NAME crisismesh_final_master_integration_test COMMAND crisismesh_final_master_integration_test)
+add_test(NAME crisismesh_operational_dsa_test COMMAND crisismesh_operational_dsa_test)
+add_executable(crisismesh_phase3_operational_test tests/phase3_operational_test.cpp)
+target_link_libraries(crisismesh_phase3_operational_test PRIVATE crisismesh_engine)
+add_test(NAME crisismesh_phase3_operational_test COMMAND crisismesh_phase3_operational_test)

@@ -12,13 +12,13 @@ cmake --build backend/build -j2
 ## Main targets
 
 - `crisismesh_simulation_cli` — persistent stdin/stdout development bridge protocol
-- `crisismesh_trace_exporter` — exports C++ algorithm traces to `public/data`
+- `crisismesh_trace_exporter` — exports supplementary C++ implementation traces
 - `crisismesh_engine_demo` — console demonstration
 - DSA/unit/integration test executables listed by `CMakeLists.txt`
 
 ## Authoritative DSA
 
-Manual implementations are retained for Queue, Stack, LinkedList, HashTable, MaxHeap, MinHeap, Graph, BFS, DFS and Dijkstra. The final DSA Lab also contains manual BST, AVL, sorting, searching, sparse-matrix and expression-processing implementations in `dsa/DSALab.*`.
+Manual implementations are retained for Queue, Stack, LinkedList, HashTable, MaxHeap, MinHeap, Graph, BFS, DFS and Dijkstra. The optional Implementation Inspector is backed by supplementary manual BST, AVL, sorting, searching, sparse-matrix and expression-processing implementations in `dsa/DSALab.*`.
 
 `std::unordered_map` remains an internal graph storage/lookup detail and is not the assessed Hash Table implementation. The assessed heap/queue/stack/list structures are not replaced with STL equivalents.
 

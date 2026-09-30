@@ -5,19 +5,11 @@
 
 namespace crisismesh {
 
-// ================================================================
 // DSA: Stack (LIFO)
-// CrisisMesh role:
-// The stack implements the last-in, first-out behavior used to undo the most
-// recent road-block operation. This gives the simulator an explicit rollback
-// action for dynamic network changes.
-//
-// Why it matters:
-// Operational changes such as road blocks are stateful; a stack lets the
-// engine reverse the most recent action without losing the prior topology state.
-// Time complexity: push O(1) amortized, pop O(1), top O(1)
-// Space complexity: O(n)
-// ================================================================
+// Operational role: stores road undo actions and drives DFS traversal.
+// Why it matters: LIFO order restores the latest road state and enables backtracking.
+// Time complexity: push O(1) amortized; pop/top O(1).
+// Space complexity: O(n).
 template <typename T>
 class Stack {
 public:

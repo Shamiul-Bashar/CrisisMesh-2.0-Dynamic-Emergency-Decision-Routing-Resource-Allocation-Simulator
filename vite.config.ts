@@ -334,6 +334,12 @@ function simulationBridge(): Plugin {
     name:
       'crisismesh-simulation-bridge',
 
+    closeBundle() {
+      rejectPending('Simulation bridge closed.');
+      child?.kill();
+      child = null;
+    },
+
     configureServer(server) {
       server.middlewares.use(
         '/api/simulation',
@@ -440,6 +446,12 @@ function simulationBridge(): Plugin {
 
                     break;
 
+                  case 'ANALYZE_BFS':
+                  case 'ANALYZE_DFS':
+                  case 'ANALYZE_DIJKSTRA':
+                    command = `${action}|${clean(input.source)}|${clean(input.destination)}`;
+                    break;
+
 
                   /* =============================
                      REPORT EMERGENCY
@@ -450,6 +462,9 @@ function simulationBridge(): Plugin {
                      ============================= */
 
                   case 'REPORT':
+                    if (!clean(input.reportedByUserId)) {
+                      throw new Error('A reporting citizen must be selected.');
+                    }
                     command =
                       `REPORT|` +
                       `${clean(input.type)}|` +
@@ -644,13 +659,23 @@ function simulationBridge(): Plugin {
                 }
 
 
-                if (
-                  !parsed ||
-                  typeof parsed !==
-                    'object'
-                ) {
+                if (!parsed || typeof parsed !== 'object') {
                   throw new Error(
                     'The C++ simulation bridge returned an invalid response object.'
+                  );
+                }
+
+                const envelope = parsed as Record<string, unknown>;
+                if (
+                  typeof envelope.ok !== 'boolean' ||
+                  !Array.isArray(envelope.events) ||
+                  !Object.prototype.hasOwnProperty.call(envelope, 'state') ||
+                  !Object.prototype.hasOwnProperty.call(envelope, 'result') ||
+                  (envelope.ok && (!envelope.state || typeof envelope.state !== 'object')) ||
+                  (!envelope.ok && envelope.state !== null)
+                ) {
+                  throw new Error(
+                    'The C++ simulation bridge returned an invalid response contract.'
                   );
                 }
 
@@ -683,6 +708,9 @@ function simulationBridge(): Plugin {
                     ok: false,
                     error:
                       message,
+                    state: null,
+                    events: [],
+                    result: null,
                   })
                 );
               }

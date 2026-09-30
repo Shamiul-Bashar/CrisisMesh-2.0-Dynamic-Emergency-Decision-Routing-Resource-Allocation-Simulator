@@ -7,7 +7,7 @@ using namespace crisismesh;
 int main(){
     {
         SimulationEngine e;
-        auto i1=e.reportEmergency(IncidentType::Medical,"LOC-010",5,5,3,"Medical emergency");
+        auto i1=e.reportEmergency(IncidentType::Medical,"LOC-019",5,5,3,"Medical emergency away from a medical base");
         auto i2=e.reportEmergency(IncidentType::Fire,"LOC-007",4,4,5,"Fire emergency");
         auto d=e.processNextIncident();
         assert(d.success);
