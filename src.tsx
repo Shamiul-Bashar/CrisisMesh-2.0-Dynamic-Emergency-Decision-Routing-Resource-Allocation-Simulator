@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, CircleUserRound, Command, Eye, EyeOff, LockKeyhole, Mail, MapPinned, Radio, RefreshCw, ShieldCheck, Sparkles, UserRound, Users, XCircle } from 'lucide-react';
 import './style.css';
 import CommandCenter from './features/command-center/CommandCenter';
+import CitizenDashboard from './features/citizen/CitizenDashboard';
 import EmergencyReport from './features/emergency/EmergencyReport';
 import { simulationRequest } from './core/simulation/api';
 import type { SimulationResponse, SimulationState } from './core/simulation/types';
@@ -1639,7 +1640,7 @@ function OTP({ role, back, done }: { role: Role; back: () => void; done: () => v
 function Demo({ code }: { code: string }) { return <aside className="demo-code"><span>ACCESS CODE</span><small>SIMULATION VERIFICATION CODE</small><strong>{code}</strong></aside>; }
 
 function Dashboard({ role, onHome }: { role: Role; onHome: () => void }) {
-  return role === 'author' ? <CommandCenter onHome={onHome} /> : <UserDashboard onHome={onHome} />;
+  return role === 'author' ? <CommandCenter onHome={onHome} /> : <CitizenDashboard onHome={onHome} />;
 }
 
 function UserDashboard({ onHome }: { onHome: () => void }) {
