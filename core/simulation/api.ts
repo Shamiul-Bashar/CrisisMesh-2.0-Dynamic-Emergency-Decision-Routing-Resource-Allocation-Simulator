@@ -1,4 +1,5 @@
 import type { SimulationResponse, AnalysisResponse } from './types';
+import { apiUrl } from '../apiBase';
 
 const BRIDGE_TIMEOUT_MS = 10_000;
 
@@ -32,7 +33,7 @@ export async function simulationRequest<T extends SimulationResponse = Simulatio
   const timeout = window.setTimeout(() => controller.abort(), BRIDGE_TIMEOUT_MS);
 
   try {
-    const response = await fetch('/api/simulation', {
+    const response = await fetch(apiUrl('/api/simulation'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
