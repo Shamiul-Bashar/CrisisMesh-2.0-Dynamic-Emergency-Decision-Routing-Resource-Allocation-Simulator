@@ -27,3 +27,28 @@
 .tm-analysis-result .tm-result-route{width:100%;display:block;color:#a8c3cc;font-size:10px;margin-top:-2px}
 .tm-analysis-result .tm-result-note{width:100%;display:block;color:#8caab5;font-size:9px;line-height:1.45;margin-top:2px}
 @media(max-width:640px){.tm-road-readout{top:48px;left:8px;width:min(270px,calc(100% - 70px))}.tm-road-readout>div{grid-template-columns:1fr 1fr}.tm-road-metric{opacity:.9}}
+
+
+/* Supplemental authoritative network locations.
+   Nodes whose source/destination name is not already represented by an equal-named facility
+   get a restrained landmark marker so the analysis dropdown and map stay visually consistent. */
+.tm-network-locations{pointer-events:none}
+.tm-network-location{color:#7f9ca9;transition:opacity .16s ease}
+.tm-network-location .tm-location-ring{fill:#0b1a23d9;stroke:currentColor;stroke-width:1.1;opacity:.9}
+.tm-network-location .tm-location-core{fill:currentColor;opacity:.9}
+.tm-network-location .tm-location-core-dot{fill:currentColor}
+.tm-network-location.intersection{color:#627f8d}
+.tm-network-location.civic{color:#79c8cf}
+.tm-network-location.transport{color:#9eb7c2}
+.tm-network-location.industrial{color:#c6a16b}
+.tm-network-location.commercial{color:#a4b7c2}
+.tm-network-location.residential{color:#819eaa}
+.tm-network-location.school{color:#91abb6}
+.tm-network-location.limited .tm-location-ring{stroke-dasharray:2 2}
+.tm-location-label{fill:#b9ccd4;font:600 7px Inter,system-ui,sans-serif;letter-spacing:.15px;paint-order:stroke;stroke:#07131d;stroke-width:3;stroke-linejoin:round;opacity:0}
+.tm-location-label.visible{opacity:.9}
+.tm-network-location.intersection .tm-location-label{fill:#89a3af;font-size:6.5px}
+.tm-network-location.important .tm-location-ring,.tm-network-location.source .tm-location-ring,.tm-network-location.destination .tm-location-ring{stroke:#a9f0eb;stroke-width:2}
+.tm-network-location.important .tm-location-label,.tm-network-location.source .tm-location-label,.tm-network-location.destination .tm-location-label{fill:#e1f4f3;opacity:1}
+.traversal-playing .tm-network-location:not(.important):not(.source):not(.destination){opacity:.58}
+@media(max-width:640px){.tm-location-label{font-size:6.5px}.tm-network-location.intersection .tm-location-label{display:none}.tm-network-location.intersection.important .tm-location-label{display:block}}
