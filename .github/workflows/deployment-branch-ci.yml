@@ -25,6 +25,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Frontend behavior tests
+        run: npm run test:frontend
+
       - name: Frontend build
         run: npm run build
 

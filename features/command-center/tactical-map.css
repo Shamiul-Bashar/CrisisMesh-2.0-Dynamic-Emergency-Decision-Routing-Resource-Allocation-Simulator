@@ -52,3 +52,18 @@
 .tm-network-location.important .tm-location-label,.tm-network-location.source .tm-location-label,.tm-network-location.destination .tm-location-label{fill:#e1f4f3;opacity:1}
 .traversal-playing .tm-network-location:not(.important):not(.source):not(.destination){opacity:.58}
 @media(max-width:640px){.tm-location-label{font-size:6.5px}.tm-network-location.intersection .tm-location-label{display:none}.tm-network-location.intersection.important .tm-location-label{display:block}}
+
+
+/* Final presentation polish: keep the default map quiet and surface decision context on demand. */
+.tm-layer-menu{max-height:calc(100% - 32px);overflow:auto;z-index:9}
+.tm-route-summary{position:absolute;left:12px;top:54px;z-index:6;width:min(300px,calc(100% - 86px));box-sizing:border-box;padding:10px 11px;border:1px solid #31515f;border-left:3px solid #55d9d5;border-radius:7px;background:#0b1b24f2;box-shadow:0 8px 22px #0006;color:#d7e6ec}
+.tm-route-summary.stale{border-left-color:#d0ad66}.tm-route-summary.unreachable{border-left-color:#ed707b}
+.tm-route-summary header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+.tm-route-summary header span{font-size:8px;letter-spacing:.13em;color:#82a5b3}.tm-route-summary header b{font-size:8px;letter-spacing:.08em;color:#72ddd6}
+.tm-route-summary.stale header b{color:#e4c47d}.tm-route-summary.unreachable header b{color:#ff9099}
+.tm-route-summary>strong{display:block;color:#edf7fa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-route-summary>div{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:8px}
+.tm-route-summary>div span{font-size:8px;color:#7897a5}.tm-route-summary>div b{display:block;margin-top:2px;color:#dcebf0;font-size:9px;font-variant-numeric:tabular-nums}
+.tm-route-summary>small{display:block;margin-top:8px;padding-top:7px;border-top:1px solid #203a46;color:#9eb7c1;font-size:9px;line-height:1.4}
+.tm-selection-reason{padding:9px 10px;border-left:2px solid #56ced2;background:#0f252e;color:#a9c8d1!important;font-size:10px!important}
+@media(max-width:640px){.tm-route-summary{top:48px;left:8px;width:min(282px,calc(100% - 70px))}.tm-route-summary>div{grid-template-columns:1fr 1fr}}

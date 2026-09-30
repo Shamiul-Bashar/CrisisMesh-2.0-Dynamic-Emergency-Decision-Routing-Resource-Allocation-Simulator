@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test:phase1": "node --test tests/phase1-auth.test.ts tests/phase1-bridge.test.mjs",
-    "start:backend": "node server/index.mjs"
+    "start:backend": "node server/index.mjs",
+    "test:frontend": "node --test tests/phase1-auth.test.ts tests/phase1-bridge.test.mjs tests/phase3-bridge.test.mjs tests/phase4-map.test.ts tests/phase6-citizen-bridge.test.mjs tests/phase6-citizen.test.ts tests/traversal-presentation.test.ts"
   },
   "dependencies": {
     "framer-motion": "13.1.1",

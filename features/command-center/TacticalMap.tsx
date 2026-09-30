@@ -3,11 +3,11 @@ import { Ambulance, Crosshair, Expand, Flame, Home, Hospital, Layers, LifeBuoy, 
 import type { SimulationState } from '../../core/simulation/types';
 import AlgorithmPlayback from './AlgorithmPlayback';
 import TraversalOverlay from './TraversalOverlay';
-import { candidateEdges, geometryFor, incidentTone, roadStyle, routeGeometry, routeModels, visibleIncidents, type PlaybackFrame, type Selection } from './mapPresentation';
+import { candidateEdges, geometryFor, incidentTone, roadStyle, routeGeometry, routeModels, selectionReasons, visibleIncidents, type PlaybackFrame, type Selection } from './mapPresentation';
 import './tactical-map.css';
 
-const layerNames = { hierarchy:'Road hierarchy',roadMetrics:'Distance & road condition',locations:'Network locations',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate routes',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
-const defaults = { hierarchy:true,roadMetrics:false,locations:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:true,exploration:true,debug:false };
+const layerNames = { hierarchy:'Road hierarchy',roadMetrics:'Distance & road condition',locations:'Network locations',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate route alternatives',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
+const defaults = { hierarchy:true,roadMetrics:false,locations:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:false,exploration:true,debug:false };
 const facilityIcon = (type:string) => type==='FIRE_STATION'?Flame:type==='HOSPITAL'?Hospital:type==='POLICE_STATION'?Shield:type==='RESCUE_STATION'?LifeBuoy:Home;
 const responderIcon = (type:string) => type==='FIRE_TRUCK'?Flame:type==='AMBULANCE'?Ambulance:type==='POLICE_UNIT'?Shield:LifeBuoy;
 const readable=(value:string)=>value.replace(/_/g,' ');
@@ -30,6 +30,7 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
   const nodeName=(id:string)=>state.network.nodes.find(node=>node.locationId===id)?.name ?? id;
   const routes=useMemo(()=>routeModels(state,selectedId),[state,selectedId]);
   const dispatch=state.dispatches.find(d=>d.incidentId===selectedId);
+  const dispatchStale=Boolean(dispatch&&(dispatch.stale||dispatch.graphRevision!==state.network.graphRevision));
   const receiveFrame=useCallback((next:PlaybackFrame|null)=>setFrame(next),[]);
   const zoomBy=(amount:number)=>setZoom(z=>Math.max(.8,Math.min(2.8,z+amount)));
   const fit=()=>{setZoom(1);setPan({x:0,y:0});};
@@ -47,7 +48,7 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
   const incidentList=visibleIncidents(state.incidents);
   const moving=motion&&!paused;
   return <div className={`tm-root ${analysisOpen ? 'analyzing' : ''}`} ref={host}>
-    <div className="tm-map-heading"><div><span>CRISIS CITY / LIVE OPERATIONS</span><h1>Tactical overview</h1></div><div className="tm-revision"><i/> NETWORK REV {state.network.graphRevision}<small>{state.network.roads.length} roads · {incidentList.length} open incidents</small></div></div>
+    <div className="tm-map-heading"><div><span>CRISIS CITY / LIVE OPERATIONS</span><h1>Tactical overview</h1></div><div className="tm-revision"><i/> NETWORK REV {state.network.graphRevision}<small>{state.network.roads.length} roads · {state.graph.blockedRoads} blocked · {incidentList.length} open incidents</small></div></div>
     <div className={`tm-canvas-area ${activeAnalysis?'traversal-playing':''}`}>
       <svg ref={svg} className="tm-svg" viewBox="60 38 920 722" aria-label="Authoritative emergency operations city map"
         onPointerDown={e=>{if((e.target as Element).closest('[data-map-item]'))return;drag.current={x:e.clientX,y:e.clientY,px:pan.x,py:pan.y,moved:false};e.currentTarget.setPointerCapture(e.pointerId);}}
@@ -96,7 +97,7 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
               <text className={`tm-location-label ${showLabel?'visible':''}`} x={labelRight?10:-10} y={labelY} textAnchor={labelRight?'start':'end'}>{node.name}</text>
             </g>;
           })}</g>}
-          {layers.candidates&&dispatch&&<g className="tm-candidate-routes" pointerEvents="none">{dispatch.candidateSummaries.filter(c=>c.responderId!==dispatch.responderId).map(c=><path key={c.responderId} d={routeGeometry(c.pathNodes,candidateEdges(c),geometry.roads)} />)}</g>}
+          {layers.candidates&&dispatch&&!dispatchStale&&<g className="tm-candidate-routes" pointerEvents="none">{dispatch.candidateSummaries.filter(c=>c.responderId!==dispatch.responderId).map(c=><path key={c.responderId} d={routeGeometry(c.pathNodes,candidateEdges(c),geometry.roads)} />)}</g>}
           <g className="tm-dispatch-routes" pointerEvents="none">{routes.map(({dispatch:d,opacity,stale})=><path key={d.incidentId} data-incident-route={d.incidentId} d={d.reachable?routeGeometry(d.pathNodes,d.pathEdges,geometry.roads):''} className={`tm-route ${stale?'stale':''} ${selectedId===d.incidentId?'focused':''}`} style={{opacity}} />)}</g>
           {layers.debug&&state.network.nodes.map(n=><g key={n.locationId} className="tm-debug"><circle cx={n.x*10} cy={n.y*8} r="3"/><text x={n.x*10+7} y={n.y*8+3}>{n.locationId}</text></g>)}
           {layers.facilities&&state.facilities.map(f=>{
@@ -142,6 +143,12 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
         <strong>{nodeName(selectedRoad.from)} → {nodeName(selectedRoad.to)}</strong>
         <div><span>Distance<b>{selectedRoad.distance.toFixed(2)} km</b></span><span>Travel<b>{selectedRoad.travelTime.toFixed(1)} min</b></span><span>Congestion<b>{selectedRoad.congestion}</b></span><span>Risk<b>{selectedRoad.risk}</b></span></div>
         {selectedRoad.blocked&&<small>Unavailable to the routing engine until reopened.</small>}
+      </div>}
+      {dispatch&&<div className={`tm-route-summary ${dispatchStale?'stale':dispatch.reachable?'reachable':'unreachable'}`} role="status">
+        <header><span>SELECTED C++ ROUTE</span><b>{dispatchStale?'STALE':dispatch.reachable?'ACTIVE':'UNREACHABLE'}</b></header>
+        <strong>{nodeName(dispatch.origin)} → {nodeName(dispatch.destination)}</strong>
+        <div><span>Distance<b>{dispatch.distance.toFixed(2)} km</b></span><span>Travel<b>{dispatch.estimatedTravelTime.toFixed(1)} min</b></span><span>Roads<b>{dispatch.pathEdges.length}</b></span><span>Cost<b>{dispatch.weightedCost.toFixed(2)}</b></span></div>
+        <small>{selectionReasons[dispatch.selectionReason]}</small>
       </div>}
       <div className="tm-map-foot"><button aria-pressed={motion} onClick={()=>setMotion(!motion)}>{motion?<Pause size={13}/>:<Play size={13}/>} Simulated route progress</button><span>{zoom.toFixed(1)}× · FICTIONAL CITY</span></div>
       {selection&&<button className="tm-clear" onClick={()=>onSelection(null)}><X size={13}/> Clear selection</button>}
