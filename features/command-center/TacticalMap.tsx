@@ -6,8 +6,8 @@ import TraversalOverlay from './TraversalOverlay';
 import { candidateEdges, geometryFor, incidentTone, roadStyle, routeGeometry, routeModels, visibleIncidents, type PlaybackFrame, type Selection } from './mapPresentation';
 import './tactical-map.css';
 
-const layerNames = { hierarchy:'Road hierarchy',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate routes',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
-const defaults = { hierarchy:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:true,exploration:true,debug:false };
+const layerNames = { hierarchy:'Road hierarchy',roadMetrics:'Road distance / status',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate routes',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
+const defaults = { hierarchy:true,roadMetrics:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:true,exploration:true,debug:false };
 const facilityIcon = (type:string) => type==='FIRE_STATION'?Flame:type==='HOSPITAL'?Hospital:type==='POLICE_STATION'?Shield:type==='RESCUE_STATION'?LifeBuoy:Home;
 const responderIcon = (type:string) => type==='FIRE_TRUCK'?Flame:type==='AMBULANCE'?Ambulance:type==='POLICE_UNIT'?Shield:LifeBuoy;
 const readable=(value:string)=>value.replace(/_/g,' ');
@@ -23,6 +23,8 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
   const drag=useRef<{x:number;y:number;px:number;py:number;moved:boolean}|null>(null);
   const geometry=useMemo(()=>geometryFor(state.network),[state.network]);
   const selectedId=selection?.kind==='incident'?selection.id:null;
+  const selectedRoad=selection?.kind==='road'?state.network.roads.find(road=>road.roadId===selection.id):undefined;
+  const nodeName=(id:string)=>state.network.nodes.find(node=>node.locationId===id)?.name ?? id;
   const routes=useMemo(()=>routeModels(state,selectedId),[state,selectedId]);
   const dispatch=state.dispatches.find(d=>d.incidentId===selectedId);
   const receiveFrame=useCallback((next:PlaybackFrame|null)=>setFrame(next),[]);
@@ -58,7 +60,7 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
           {/* Decorative blocks have no routing or operational meaning. */}
           <g className="tm-blocks" aria-hidden="true">{state.network.nodes.map(n=><g key={n.locationId} transform={`translate(${n.x*10} ${n.y*8})`}><rect x="18" y="-34" width="22" height="15" rx="2"/><rect x="44" y="-34" width="12" height="24" rx="2"/><rect x="-43" y="17" width="16" height="25" rx="2"/></g>)}</g>
           {layers.districts && <g className="tm-zones" pointerEvents="none">{geometry.zones.map(z=><g key={z.name}><rect x={z.minX} y={z.minY} width={z.width} height={z.height} rx="22"/><text x={z.x} y={z.minY+15} textAnchor="middle">{z.name} DISTRICT</text></g>)}</g>}
-          <g className="tm-roads">{[...geometry.roads.values()].map(({road,d,cx,cy})=>{
+          <g className="tm-roads">{[...geometry.roads.values()].map(({road,d,cx,cy},roadIndex)=>{
             const style=roadStyle(road),width=layers.hierarchy?style.width:3;
             return <g key={road.roadId} data-map-item role="button" tabIndex={0} style={{opacity:activeAnalysis&&!road.blocked&&!safeFrame?.explored.has(road.roadId)? .45:1}} aria-label={`Inspect road ${road.roadId}, ${style.status}`} className={selection?.kind==='road'&&selection.id===road.roadId?'tm-road selected':'tm-road'} {...activate({kind:'road',id:road.roadId})}>
               <title>{road.roadId} · {road.roadClass} · {road.distance} km · {road.travelTime} min · congestion {road.congestion} · risk {road.risk} · capacity {road.capacity} · {style.status}</title>
@@ -68,6 +70,11 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
               {layers.congestion&&!road.blocked&&style.congestion!=='normal'&&<path d={d} className={`tm-congestion ${style.congestion}`} strokeWidth={width*.62}/>}
               {layers.risk&&style.risk!=='low'&&<path d={d} className={`tm-risk ${style.risk}`} strokeWidth={width+6}/>}
               {road.blocked&&layers.blocked&&<><path d={d} className="tm-closed" strokeWidth={width+1}/><g className="tm-closure-symbol" transform={`translate(${cx},${cy})`}><rect x="-7" y="-7" width="14" height="14" rx="2"/><path d="M-3-3L3 3M3-3L-3 3"/></g></>}
+              {layers.roadMetrics&&<g className={`tm-road-metric ${road.blocked?'blocked':'open'} ${selection?.kind==='road'&&selection.id===road.roadId?'selected':''}`} transform={`translate(${cx} ${cy+((roadIndex%3)-1)*12})`} pointerEvents="none">
+                <rect x="-31" y="-10" width="62" height="20" rx="4"/>
+                <text className="tm-road-distance" x="0" y="-1" textAnchor="middle">{road.distance.toFixed(1)} km</text>
+                <text className="tm-road-state" x="0" y="7" textAnchor="middle">{road.blocked?'BLOCKED':'OPEN'}</text>
+              </g>}
             </g>;
           })}</g>
           {layers.candidates&&dispatch&&<g className="tm-candidate-routes" pointerEvents="none">{dispatch.candidateSummaries.filter(c=>c.responderId!==dispatch.responderId).map(c=><path key={c.responderId} d={routeGeometry(c.pathNodes,candidateEdges(c),geometry.roads)} />)}</g>}
@@ -111,10 +118,16 @@ export default function TacticalMap({state, selection, onSelection, analysisOpen
         <button title="Map layers" aria-label="Map layers" aria-expanded={layerMenu} onClick={()=>setLayerMenu(!layerMenu)}><Layers size={17}/></button>
       </div>
       {layerMenu&&<div className="tm-layer-menu"><b>Map layers</b>{Object.entries(layerNames).map(([key,label])=><label key={key}><input type="checkbox" checked={layers[key as keyof typeof layers]} onChange={()=>setLayers(prev=>({...prev,[key]:!prev[key as keyof typeof layers]}))}/>{label}</label>)}</div>}
+      {selectedRoad&&<div className={`tm-road-readout ${selectedRoad.blocked?'blocked':'open'}`} role="status">
+        <header><span>{selectedRoad.roadId}</span><b>{selectedRoad.blocked?'BLOCKED':'OPEN'}</b></header>
+        <strong>{nodeName(selectedRoad.from)} → {nodeName(selectedRoad.to)}</strong>
+        <div><span>Distance<b>{selectedRoad.distance.toFixed(2)} km</b></span><span>Travel<b>{selectedRoad.travelTime.toFixed(1)} min</b></span><span>Congestion<b>{selectedRoad.congestion}</b></span><span>Risk<b>{selectedRoad.risk}</b></span></div>
+        {selectedRoad.blocked&&<small>Unavailable to the routing engine until reopened.</small>}
+      </div>}
       <div className="tm-map-foot"><button aria-pressed={motion} onClick={()=>setMotion(!motion)}>{motion?<Pause size={13}/>:<Play size={13}/>} Simulated route progress</button><span>{zoom.toFixed(1)}× · FICTIONAL CITY</span></div>
       {selection&&<button className="tm-clear" onClick={()=>onSelection(null)}><X size={13}/> Clear selection</button>}
       {fullscreenError&&<p className="tm-fs-error" role="status">{fullscreenError}</p>}
-      <div className="tm-legend"><button aria-expanded={legend} onClick={()=>setLegend(!legend)}><Layers size={13}/> Map legend</button>{legend&&<div><span><Flame size={13}/> Fire</span><span><Hospital size={13}/> Medical</span><span><Shield size={13}/> Police</span><span><LifeBuoy size={13}/> Rescue</span><span><Home size={13}/> Shelter</span><span className="tm-red">◇ Active incident</span><span>◇ Cyan: confirmation</span><span>━ Cyan: selected route</span><span>┄ Candidate / stale snapshot</span><span className="tm-amber">━ Congestion: 4–5 moderate, 6+ high</span><span className="tm-violet">┄ Risk: 2 moderate, 3 high</span><span className="tm-red">× Dashed red: closed road</span><span>● Exploration / current frontier</span></div>}</div>
+      <div className="tm-legend"><button aria-expanded={legend} onClick={()=>setLegend(!legend)}><Layers size={13}/> Map legend</button>{legend&&<div><span><Flame size={13}/> Fire</span><span><Hospital size={13}/> Medical</span><span><Shield size={13}/> Police</span><span><LifeBuoy size={13}/> Rescue</span><span><Home size={13}/> Shelter</span><span className="tm-red">◇ Active incident</span><span>◇ Cyan: confirmation</span><span>━ Solid road: open</span><span>▣ Badge: distance / status</span><span>━ Cyan: selected route</span><span>┄ Candidate / stale snapshot</span><span className="tm-amber">━ Congestion: 4–5 moderate, 6+ high</span><span className="tm-violet">┄ Risk: 2 moderate, 3 high</span><span className="tm-red">× Dashed red: blocked road</span><span>● Exploration / current frontier</span></div>}</div>
       {analysisOpen&&<AlgorithmPlayback state={state} dispatch={dispatch} onFrame={receiveFrame} onClose={onAnalysisClose}/>}
     </div>
   </div>;
