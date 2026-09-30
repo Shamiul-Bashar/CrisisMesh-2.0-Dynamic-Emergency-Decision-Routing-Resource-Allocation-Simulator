@@ -21,6 +21,7 @@ import {
   type Role,
   type StoredUser,
 } from './core/auth/credentials';
+import { apiUrl } from './core/apiBase';
 
 type Screen = 'home' | 'login' | 'register' | 'forgot' | 'otp' | 'dashboard';
 type OTPState = 'input' | 'verifying' | 'success' | 'error' | 'expired';
@@ -344,7 +345,7 @@ function ForgotPassword({
 
     try {
       const response = await fetch(
-        '/api/auth/send-author-otp',
+        apiUrl('/api/auth/send-author-otp'),
         {
           method: 'POST',
 
@@ -649,7 +650,7 @@ function ForgotPassword({
 
       try {
         const response = await fetch(
-          '/api/auth/verify-author-otp',
+          apiUrl('/api/auth/verify-author-otp'),
           {
             method: 'POST',
 
