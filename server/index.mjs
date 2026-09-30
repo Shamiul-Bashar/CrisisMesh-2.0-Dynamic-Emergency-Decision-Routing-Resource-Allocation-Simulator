@@ -16,6 +16,8 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,ht
   .map((value) => value.trim())
   .filter(Boolean);
 
+const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+const resendFromEmail = (process.env.RESEND_FROM_EMAIL || 'CrisisMesh 2.0 <onboarding@resend.dev>').trim();
 const emailUser = (process.env.EMAIL_USER || '').trim();
 const emailAppPassword = (process.env.EMAIL_APP_PASSWORD || '').replace(/\s+/g, '').trim();
 const authorRecoveryEmail = (process.env.AUTHOR_RECOVERY_EMAIL || process.env.EMAIL_USER || '').trim().toLowerCase();
@@ -25,6 +27,67 @@ const transporter = emailUser && emailAppPassword
   : null;
 
 const otpStore = new Map();
+
+function buildOtpEmailText(otp) {
+  return [
+    'CrisisMesh 2.0',
+    'Emergency Operations Center',
+    '',
+    'Password Reset Verification',
+    '',
+    `Your verification code is: ${otp}`,
+    '',
+    'This code will expire in 60 seconds.',
+    '',
+    'If you did not request a password reset, you can safely ignore this email.',
+  ].join('\n');
+}
+
+async function sendRecoveryOtpEmail(to, otp) {
+  const subject = 'CrisisMesh 2.0 — Password Reset Verification';
+  const text = buildOtpEmailText(otp);
+
+  if (resendApiKey) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: resendFromEmail,
+        to: [to],
+        subject,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.json();
+        detail = payload?.message ? `: ${payload.message}` : '';
+      } catch {
+        // Resend may return a non-JSON error body; status code is still enough for diagnostics.
+      }
+      throw new Error(`Resend API failed with HTTP ${response.status}${detail}`);
+    }
+
+    return 'resend';
+  }
+
+  if (transporter) {
+    await transporter.sendMail({
+      from: `"CrisisMesh 2.0" <${emailUser}>`,
+      to,
+      subject,
+      text,
+    });
+    return 'gmail-smtp';
+  }
+
+  throw new Error('Email service is not configured. Set RESEND_API_KEY or Gmail SMTP variables.');
+}
 
 const executableBase = process.env.SIMULATION_CLI_PATH
   ? resolve(process.env.SIMULATION_CLI_PATH)
@@ -270,7 +333,7 @@ async function handleSendAuthorOtp(req, res) {
   }
 
   try {
-    if (!emailUser || !emailAppPassword || !authorRecoveryEmail || !transporter) {
+    if (!authorRecoveryEmail || (!resendApiKey && !transporter)) {
       throw new Error('Email service is not configured.');
     }
 
@@ -303,23 +366,7 @@ async function handleSendAuthorOtp(req, res) {
     otpStore.set(requestedEmail, { code: otp, expiresAt, attemptsRemaining: MAX_OTP_ATTEMPTS });
 
     try {
-      await transporter.sendMail({
-        from: `"CrisisMesh 2.0" <${emailUser}>`,
-        to: requestedEmail,
-        subject: 'CrisisMesh 2.0 — Password Reset Verification',
-        text: [
-          'CrisisMesh 2.0',
-          'Emergency Operations Center',
-          '',
-          'Password Reset Verification',
-          '',
-          `Your verification code is: ${otp}`,
-          '',
-          'This code will expire in 60 seconds.',
-          '',
-          'If you did not request a password reset, you can safely ignore this email.',
-        ].join('\n'),
-      });
+      await sendRecoveryOtpEmail(requestedEmail, otp);
     } catch (error) {
       otpStore.delete(requestedEmail);
       throw error;
