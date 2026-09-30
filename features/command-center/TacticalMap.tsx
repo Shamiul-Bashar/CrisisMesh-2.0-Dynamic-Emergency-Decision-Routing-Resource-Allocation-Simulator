@@ -6,8 +6,8 @@ import TraversalOverlay from './TraversalOverlay';
 import { candidateEdges, geometryFor, incidentTone, roadStyle, routeGeometry, routeModels, visibleIncidents, type PlaybackFrame, type Selection } from './mapPresentation';
 import './tactical-map.css';
 
-const layerNames = { hierarchy:'Road hierarchy',roadMetrics:'Road distance / status',locations:'Network locations',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate routes',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
-const defaults = { hierarchy:true,roadMetrics:true,locations:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:true,exploration:true,debug:false };
+const layerNames = { hierarchy:'Road hierarchy',roadMetrics:'Distance & road condition',locations:'Network locations',districts:'Districts',facilities:'Facilities',responders:'Responders',incidents:'Incidents',congestion:'Congestion',risk:'Risk',blocked:'Blocked roads',candidates:'Candidate routes',exploration:'Algorithm exploration',debug:'Node IDs / debug' };
+const defaults = { hierarchy:true,roadMetrics:false,locations:true,districts:true,facilities:true,responders:true,incidents:true,congestion:false,risk:false,blocked:true,candidates:true,exploration:true,debug:false };
 const facilityIcon = (type:string) => type==='FIRE_STATION'?Flame:type==='HOSPITAL'?Hospital:type==='POLICE_STATION'?Shield:type==='RESCUE_STATION'?LifeBuoy:Home;
 const responderIcon = (type:string) => type==='FIRE_TRUCK'?Flame:type==='AMBULANCE'?Ambulance:type==='POLICE_UNIT'?Shield:LifeBuoy;
 const readable=(value:string)=>value.replace(/_/g,' ');
