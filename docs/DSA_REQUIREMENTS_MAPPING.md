@@ -1,24 +1,33 @@
-# Operational DSA Requirements Mapping
+# Final DSA Requirements Mapping
 
-Phase 2 keeps the existing DSA Lab and connects the required structures to the authoritative C++ emergency workflow.
+This document maps every assessed structure to the final operational C++ path. The React DSA Architecture view summarizes the same mapping, and the optional Implementation Inspector shows supplementary C++-generated evidence. Operational decisions come from `SimulationEngine`, not from packaged frontend traces.
 
-Phase 3 extends the same structures with persisted dispatch records and live graph analysis. See [the city and dispatch contract](AUTHORITATIVE_CITY_DISPATCH.md). DFS uses manual traversal frames with parent-linked backtracking; its cached adjacency and event trace use O(V + E) space.
+| Requirement | Exact C++ module | Operational use | Manual status | Main complexity | Test evidence |
+|---|---|---|---|---|---|
+| Array | `include/array/OperationalArray.hpp` | Bounded candidate buffer inside responder evaluation | Manual fixed-capacity template | access/append O(1), space O(capacity) | `operational_dsa_test.cpp`, `phase3_operational_test.cpp` |
+| Linked List | `include/linkedlist/LinkedList.hpp`, `src/linkedlist/LinkedList.cpp` | Chronological resolved-incident records | Manual linked nodes | append O(1), traversal O(n) | `linkedlist_test.cpp`, `operational_dsa_test.cpp` |
+| Stack | `include/stack/Stack.hpp` | Road-block undo and DFS support | Manual dynamic-array Stack | push/pop O(1) amortized | `stack_test.cpp`, `simulation_reroute_test.cpp`, `phase3_operational_test.cpp` |
+| Queue | `include/queue/Queue.hpp` | FIFO incident intake and BFS frontier | Manual circular-array Queue | enqueue/dequeue O(1) amortized | `queue_test.cpp`, `bfs_test.cpp`, `operational_dsa_test.cpp` |
+| Tree | `IncidentArchiveIndex` in `include/tree/IncidentArchiveIndex.hpp` and `src/tree/IncidentArchiveIndex.cpp` | Closed incidents indexed by report sequence | Manual AVL Tree with rotations | insert/search O(log n), traversal O(n) | `operational_dsa_test.cpp`, `phase3_operational_test.cpp` |
+| BFS | `include/bfs/BFS.hpp`, `src/bfs/BFS.cpp` | Minimum-hop analysis on current open roads | Manual traversal using project Queue | O(V + E) | `bfs_test.cpp`, `phase3_operational_test.cpp`, `tests/phase3-bridge.test.mjs` |
+| DFS | `include/dfs/DFS.hpp`, `src/dfs/DFS.cpp` | Reachability with explicit parent-linked backtracking | Manual iterative traversal frames | O(V + E) | `dfs_test.cpp`, `phase3_operational_test.cpp`, `tests/phase3-bridge.test.mjs` |
+| Searching | `LocationDirectory` in `include/search/LocationDirectory.hpp` and `src/search/LocationDirectory.cpp` | Validate reported location IDs in a sorted directory | Manual Binary Search | O(log n) | `operational_dsa_test.cpp`, invalid-report integration tests |
+| Sorting | `include/sort/CandidateMergeSort.hpp`, `src/sort/CandidateMergeSort.cpp` | Order actual responder route summaries deterministically | Manual Merge Sort | O(n log n), O(n) auxiliary space | `operational_dsa_test.cpp`, `phase3_operational_test.cpp` |
+| Heap | `include/heap/MaxHeap.hpp`, `src/heap/MaxHeap.cpp` | Extract highest-priority waiting incident | Manual binary Max Heap | insert/extract O(log n), peek O(1) | `maxheap_test.cpp`, `dispatch_test.cpp`, `operational_dsa_test.cpp` |
+| Min Heap | `include/dijkstra/MinHeap.hpp`, `src/dijkstra/MinHeap.cpp` | Dijkstra frontier ordered by lowest route cost | Manual binary Min Heap | push/pop O(log n), peek O(1) | `dijkstra_test.cpp`, `dispatch_test.cpp` |
+| Hash Table | `include/hashtable/HashTable.hpp`, `src/hashtable/HashTable.cpp` | Incident ID to authoritative storage index/metadata | Manual separate-chaining table | average O(1), worst O(n) | `hashtable_test.cpp`, `operational_dsa_test.cpp` |
+| Graph | `include/graph/Graph.hpp`, `src/graph/Graph.cpp`, `src/graph/CityData.cpp` | 24-node, 42-road authoritative city network | Manual adjacency-list behavior over project edge/vertex types | neighbor traversal O(degree), storage O(V + E) | `graph_test.cpp`, `phase3_operational_test.cpp` |
+| Dijkstra | `include/dijkstra/Dijkstra.hpp`, `src/dijkstra/Dijkstra.cpp` | Weighted responder selection, dispatch route, and reroute | Manual algorithm using project Min Heap | O((V + E) log V) | `dijkstra_test.cpp`, `dispatch_test.cpp`, `simulation_reroute_test.cpp`, `tests/phase3-bridge.test.mjs` |
 
-| DSA / algorithm | Implementation | Operational use | Complexity | Verification |
-|---|---|---|---|---|
-| Array | `OperationalArray<T, Capacity>` | Bounded responder candidate evaluations inside `chooseResponder` | access/append O(1), space O(capacity) | capacity behavior and real ranked dispatch candidates |
-| Linked List | `LinkedList` | Chronological resolved incident records containing sequence, ID, and status | append O(1), traversal O(n) | resolution appends a history entry |
-| Stack | `Stack<T>` | Road block state undo and DFS frontier | push amortized O(1), pop O(1) | two road blocks restore in LIFO order; DFS stack events |
-| Queue | `Queue<T>` | FIFO emergency intake and BFS frontier | enqueue amortized O(1), dequeue O(1) | intake preserves report order; BFS enqueue events |
-| AVL Tree | `IncidentArchiveIndex` | Closed incidents indexed by stable report sequence | insert/search O(log n), traversal O(n) | rotations, lookup, inorder ordering, and balance checks |
-| BFS | `BFS::run` | Minimum-hop reachability over open roads | O(V + E) average | reachable path and queue trace |
-| DFS | `DFS::run` | Deep reachability traversal with dead-end/backtracking trace | O(V + E) average | unreachable case and `DFS_BACKTRACK` event |
-| Binary Search | `LocationDirectory::find` | Validates every reported incident location in a sorted directory | search O(log n) | known location succeeds; invalid reports remain rejected |
-| Merge Sort | `mergeSortCandidates` | Ranks real Dijkstra responder summaries by cost, time, distance, then ID | O(n log n), space O(n) | deterministic ties and selected responder equals first reachable rank |
-| Max Heap | `MaxHeap` | Selects the highest-priority triaged emergency | insert/extract O(log n), peek O(1) | higher-priority incident dispatches first |
-| Min Heap | `MinHeap` | Maintains Dijkstra's lowest-cost route frontier | push/pop O(log n), peek O(1) | existing Dijkstra and dispatch route tests |
-| Hash Table | `HashTable` | Maps incident IDs to stable vector indices and current metadata | average insert/search/update O(1), worst O(n) | `findIncident` returns the authoritative vector object |
-| Graph | `Graph` adjacency lists | Authoritative city roads, block state, and neighborhood queries | neighbor traversal O(degree) | graph, routing, block, and reroute tests |
-| Dijkstra | `Dijkstra::run` | Authoritative weighted responder routing | O((V + E) log V) with Min Heap | route cost/distance/time and dispatch tests |
+## Operational contracts
 
-Responder ordering is deterministic: reachable candidates precede unreachable candidates, followed by weighted route cost, travel time, distance, and responder ID. The existing `DSALab` files and UI remain available as an educational surface; operational grading evidence comes from the simulation paths above and `backend/tests/operational_dsa_test.cpp`.
+- Candidate ranking places reachable responders first, then compares weighted cost, travel time, distance, and responder ID.
+- The Queue preserves report arrival order before priority triage; the Max Heap decides which triaged incident is dispatched first.
+- The Stack stores successful road-block operations so `UNDO_BLOCK` reopens the latest road in LIFO order.
+- BFS minimizes hops, DFS demonstrates reachability/backtracking, and Dijkstra minimizes weighted operational cost.
+- Closed incidents are appended to Linked List history and indexed in the AVL archive.
+- `std::unordered_map` used internally by graph storage is not claimed as the assessed manual Hash Table.
+
+## Supplementary implementation evidence
+
+`backend/include/dsa/DSALab.hpp`, `backend/src/dsa/DSALab.cpp`, `backend/tests/dsa_lab_test.cpp`, and `crisismesh_trace_exporter` are retained because they demonstrate additional manual structures requested during development. They are secondary evidence. The table above identifies the final operational grading paths.

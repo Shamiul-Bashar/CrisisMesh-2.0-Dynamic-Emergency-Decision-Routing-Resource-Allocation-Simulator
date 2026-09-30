@@ -1,4 +1,4 @@
-# Authoritative city and dispatch contract — Phase 3
+# Authoritative City and Dispatch Contract
 
 ## Sources and coverage
 
@@ -6,7 +6,7 @@ The C++ city source is `backend/src/graph/CityData.cpp`: 24 locations and 42 und
 
 `SimulationEngine::initializeFacilities` in `OperationalData.cpp` supplies 14 facilities and 12 responders: three fire stations/units, four medical posts/ambulances, three police stations/units, two rescue bases/units and two shelters. Medical and emergency posts may share a school, terminal or shelter node; the facility category is separate from the node's primary land use. Shelter IDs match the allocation engine. All units initially are available and at their base facility.
 
-`network`, `facilities`, `responders`, `incidents` and `dispatches` in STATE are the authoritative map inputs. The current Command Center converts `network` with a presentation-only adapter. Legacy static facility panels, DSA Lab and trace demonstrations remain for Phase 4 migration; they must not be used as dispatch or analysis decision sources.
+`network`, `facilities`, `responders`, `incidents` and `dispatches` in `STATE` are the authoritative map inputs. The Command Center converts `network` with a presentation-only adapter. Obsolete static operational datasets and standalone trace visualizers were removed during final hardening. The optional Implementation Inspector is supplementary grading evidence and is never a dispatch or analysis decision source.
 
 ## Road semantics and revision
 
@@ -30,9 +30,9 @@ Compatible available responders are evaluated once in C++, held in the Phase 2 b
 
 Candidates expose responder ID/type, start/destination, reachable, distance, estimatedTravelTime, weightedCost, risk, congestion, pathNodes, pathEdges and graphRevision. Distance, time and weighted cost are sums of selected edge values/costs; risk is the sum of edge risk levels; congestion is the arithmetic mean of edge congestion levels (zero for zero-edge paths). Unreachable routes have empty paths and zero aggregate metrics; always inspect `reachable`.
 
-## Lifecycle and recovery
+## Lifecycle, ownership, and recovery
 
-Responders hold their active `assignedIncidentId` explicitly. Field completion releases that assignment, removes the active dispatch and moves the responder to the incident location. The incident retains its historical responder ID while awaiting its owner's confirmation. Confirming an old incident cannot release a responder already assigned elsewhere.
+Responders hold their active `assignedIncidentId` explicitly. Field completion releases that assignment, removes the active dispatch, moves the responder to the incident location, and advances the incident through `RESPONSE_COMPLETED` to `AWAITING_USER_CONFIRMATION`. The incident retains its historical responder ID while awaiting its owner's confirmation. YES from the reporting owner closes the incident. NO requires a reason, records the escalation, raises urgency, and requeues the incident. Confirming an old incident cannot release a responder already assigned elsewhere.
 
 Waiting incidents remain in authoritative incident storage. PROCESS_NEXT, restored responder availability and field completion retry waiting incidents in report order by appending them once to the manual FIFO intake queue; the Max Heap then applies normal priority. Failed routing with no assignment also waits and may be retried. No automatic busy loop is used.
 
@@ -52,7 +52,7 @@ BFS minimizes hop count; DFS tests reachability and exposes depth-first explorat
 
 `phase3_operational_test.cpp` covers coverage, metric sums, deterministic selection, persistence, simultaneous incidents, revisions, reassignment, user confirmation and recovery. `tests/phase3-bridge.test.mjs` starts an isolated development bridge and validates the HTTP contract, owner rejection, all three analyses before/after blocking, and reopening recovery. Run it with `node --test tests/phase3-bridge.test.mjs`. The Phase 2 DSA test and all prior CTest cases remain registered.
 
-## Phase 3 file inventory
+## Historical Phase 3 file inventory
 
 Added:
 

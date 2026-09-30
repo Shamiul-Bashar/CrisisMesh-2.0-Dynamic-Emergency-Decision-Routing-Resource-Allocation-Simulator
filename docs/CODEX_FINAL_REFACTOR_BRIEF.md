@@ -1,5 +1,7 @@
 # CrisisMesh 2.0 — Final Product Refactor Brief for Codex
 
+> **Historical development brief:** This file records the original refactor plan and may describe superseded intermediate UI or validation states. For the final architecture, setup, lifecycle, DSA mapping, and verified limitations, use the repository `README.md`, `AUTHORITATIVE_CITY_DISPATCH.md`, `DSA_REQUIREMENTS_MAPPING.md`, `VIVA_GUIDE.md`, and `FINAL_SUBMISSION_SUMMARY.md`.
+
 ## Repository and working branch
 
 Repository:
