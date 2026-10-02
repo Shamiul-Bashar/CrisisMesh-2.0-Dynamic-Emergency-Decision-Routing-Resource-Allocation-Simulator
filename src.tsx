@@ -89,16 +89,20 @@ function saveUsers(users: StoredUser[]) { writeUsersVerified(localStorage, users
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>(() => {
-    return readSession(localStorage) ? 'dashboard' : 'home';
+    return readSession(sessionStorage) ? 'dashboard' : 'home';
   });
   const [role, setRole] = useState<Role>(() => {
-    return readSession(localStorage)?.role ?? 'user';
+    return readSession(sessionStorage)?.role ?? 'user';
   });
   const [authNotice, setAuthNotice] = useState('');
   const [pendingUser, setPendingUser] = useState<StoredUser | null>(null);
+  useEffect(() => {
+    // Remove legacy persistent sessions so a fresh tab always opens on the public home page.
+    localStorage.removeItem('cm-session');
+  }, []);
   const [pendingSessionUserId, setPendingSessionUserId] = useState<string | null>(null);
 
-  const goHome = () => { localStorage.removeItem('cm-session'); setAuthNotice(''); setScreen('home'); };
+  const goHome = () => { sessionStorage.removeItem('cm-session'); localStorage.removeItem('cm-session'); setAuthNotice(''); setScreen('home'); };
   const startLogin = (nextRole: Role) => { setRole(nextRole); setAuthNotice(''); setScreen('login'); };
 
   const completeOTP = async () => {
@@ -113,7 +117,7 @@ export default function App() {
       saveUsers([...users.filter((u) => u.id !== pendingUser.id), pendingUser]);
       setPendingUser(null);
     }
-    writeSessionVerified(localStorage, role, sessionUserId);
+    writeSessionVerified(sessionStorage, role, sessionUserId);
     setPendingSessionUserId(null);
     setScreen('dashboard');
   };
