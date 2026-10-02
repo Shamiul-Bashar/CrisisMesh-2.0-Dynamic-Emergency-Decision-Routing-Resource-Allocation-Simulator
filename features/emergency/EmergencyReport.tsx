@@ -12,7 +12,7 @@ import {
 } from '../../core/simulation/api';
 
 import type {
-  SimulationIncident,
+  AuthoritativeNetwork,
   ReportResult,
   SimulationResponse,
 } from '../../core/simulation/types';
@@ -27,6 +27,12 @@ type Props = {
   onSubmitted?: (
     payload: SimulationReportResponse
   ) => void;
+
+  /*
+   * Authoritative city nodes from the same C++ network
+   * rendered in the Author tactical map.
+   */
+  locations: AuthoritativeNetwork['nodes'];
 
   /*
    * Logged-in user who is reporting
@@ -77,8 +83,24 @@ const stages = [
 export default function EmergencyReport({
   onClose,
   onSubmitted,
+  locations,
   reportedByUserId = '',
 }: Props) {
+
+  const defaultLocationId =
+    locations.find(
+      (location) =>
+        location.locationId === 'LOC-007'
+    )?.locationId ??
+    locations[0]?.locationId ??
+    '';
+
+  const locationName =
+    (locationId: string) =>
+      locations.find(
+        (location) =>
+          location.locationId === locationId
+      )?.name ?? locationId;
 
   const [
     form,
@@ -87,7 +109,7 @@ export default function EmergencyReport({
     type: 'MEDICAL',
 
     locationId:
-      'LOC-007',
+      defaultLocationId,
 
     severity: 4,
 
@@ -184,6 +206,22 @@ export default function EmergencyReport({
         return;
       }
 
+
+      if (
+        !form.locationId ||
+        !locations.some(
+          (location) =>
+            location.locationId === form.locationId
+        )
+      ) {
+        setError(
+          'Please select a valid city location from the CrisisMesh map.'
+        );
+
+        setBusy(false);
+
+        return;
+      }
 
       /*
        * User ownership is important for
@@ -376,6 +414,10 @@ export default function EmergencyReport({
                   form.locationId
                 }
 
+                disabled={
+                  !locations.length
+                }
+
                 onChange={
                   (e) =>
                     setForm({
@@ -387,32 +429,16 @@ export default function EmergencyReport({
                 }
               >
 
-                {Array
-                  .from(
-                    {
-                      length: 24,
-                    },
-
-                    (
-                      _,
-                      i
-                    ) =>
-                      `LOC-${String(
-                        i + 1
-                      ).padStart(
-                        3,
-                        '0'
-                      )}`
+                {locations.map(
+                  (location) => (
+                    <option
+                      key={location.locationId}
+                      value={location.locationId}
+                    >
+                      {location.name}
+                    </option>
                   )
-                  .map(
-                    (x) => (
-                      <option
-                        key={x}
-                      >
-                        {x}
-                      </option>
-                    )
-                  )}
+                )}
 
               </select>
 
@@ -712,7 +738,9 @@ export default function EmergencyReport({
 
                 <b>
                   {
-                    result.result.incident.locationId
+                    locationName(
+                      result.result.incident.locationId
+                    )
                   }
                 </b>
               </div>
