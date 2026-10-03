@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { randomInt } from 'node:crypto';
 import nodemailer from 'nodemailer';
 
@@ -21,6 +21,7 @@ const resendFromEmail = (process.env.RESEND_FROM_EMAIL || 'CrisisMesh 2.0 <onboa
 const emailUser = (process.env.EMAIL_USER || '').trim();
 const emailAppPassword = (process.env.EMAIL_APP_PASSWORD || '').replace(/\s+/g, '').trim();
 const authorRecoveryEmail = (process.env.AUTHOR_RECOVERY_EMAIL || process.env.EMAIL_USER || '').trim().toLowerCase();
+const userDataPath = (process.env.USER_DATA_PATH || '').trim();
 
 const transporter = emailUser && emailAppPassword
   ? nodemailer.createTransport({ service: 'gmail', auth: { user: emailUser, pass: emailAppPassword } })
@@ -83,6 +84,33 @@ function identityConflict(candidate) {
     )
   ) ?? null;
 }
+
+function persistUserStore() {
+  if (!userDataPath) return;
+  mkdirSync(dirname(userDataPath), { recursive: true });
+  writeFileSync(userDataPath, JSON.stringify([...userStore.values()], null, 2), 'utf8');
+}
+
+function loadUserStore() {
+  if (!userDataPath || !existsSync(userDataPath)) return;
+  try {
+    const parsed = JSON.parse(readFileSync(userDataPath, 'utf8'));
+    if (!Array.isArray(parsed)) return;
+    for (const raw of parsed) {
+      try {
+        const user = normalizeUserInput(raw);
+        userStore.set(user.id, user);
+      } catch {
+        // Ignore malformed legacy records and keep loading valid users.
+      }
+    }
+    console.log(`[CrisisMesh Users] loaded ${userStore.size} persisted user(s).`);
+  } catch (error) {
+    console.error('[CrisisMesh Users] unable to load persisted users:', error instanceof Error ? error.message : String(error));
+  }
+}
+
+loadUserStore();
 
 function buildOtpEmailText(otp) {
   return [
@@ -443,6 +471,7 @@ async function handleUserSync(req, res) {
       lastLogin: Math.max(existing?.lastLogin ?? 0, candidate.lastLogin ?? 0) || null,
     };
     userStore.set(merged.id, merged);
+    persistUserStore();
 
     sendJson(res, 200, { ok: true, user: publicUser(merged) });
   } catch (error) {
@@ -474,6 +503,7 @@ async function handleUserLogin(req, res) {
 
     const updated = { ...user, lastLogin: Date.now(), accountStatus: 'Active' };
     userStore.set(updated.id, updated);
+    persistUserStore();
     sendJson(res, 200, { ok: true, user: publicUser(updated) });
   } catch (error) {
     sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to sign in.' });
@@ -498,6 +528,7 @@ async function handleUserPassword(req, res) {
     }
 
     userStore.set(userId, { ...user, passwordHash });
+    persistUserStore();
     sendJson(res, 200, { ok: true });
   } catch (error) {
     sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to update password.' });
@@ -637,6 +668,8 @@ const server = createServer(async (req, res) => {
       ok: true,
       service: 'crisismesh-backend',
       engineProcess: child && !child.killed ? 'ONLINE' : 'STARTING_ON_DEMAND',
+      userRegistry: userDataPath ? 'PERSISTENT' : 'MEMORY',
+      registeredUsers: userStore.size,
     });
     return;
   }
