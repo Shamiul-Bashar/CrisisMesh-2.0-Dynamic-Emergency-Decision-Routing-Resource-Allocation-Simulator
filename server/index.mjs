@@ -440,7 +440,7 @@ async function handleUserSync(req, res) {
       ...existing,
       ...candidate,
       createdAt: existing?.createdAt ?? candidate.createdAt,
-      lastLogin: candidate.lastLogin ?? existing?.lastLogin ?? null,
+      lastLogin: Math.max(existing?.lastLogin ?? 0, candidate.lastLogin ?? 0) || null,
     };
     userStore.set(merged.id, merged);
 
@@ -462,7 +462,12 @@ async function handleUserLogin(req, res) {
     const passwordHash = String(input.passwordHash ?? '').trim();
     const user = findUserByIdentity(identity);
 
-    if (!user || !passwordHash || user.passwordHash !== passwordHash) {
+    if (!user) {
+      sendJson(res, 404, { ok: false, error: 'Online account not found.' });
+      return;
+    }
+
+    if (!passwordHash || user.passwordHash !== passwordHash) {
       sendJson(res, 401, { ok: false, error: 'Invalid username/email or password.' });
       return;
     }

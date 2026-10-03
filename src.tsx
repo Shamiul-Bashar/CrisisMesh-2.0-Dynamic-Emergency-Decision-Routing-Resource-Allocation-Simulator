@@ -120,12 +120,13 @@ async function authenticateOnlineUser(identity: string, password: string): Promi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identity, passwordHash }),
   });
-  if (response.status === 401) return null;
+  if (response.status === 404) return null;
   const data = await response.json() as {
     ok?: boolean;
     user?: Omit<StoredUser, 'passwordHash'>;
     error?: string;
   };
+  if (response.status === 401) throw new Error(data.error || 'Invalid username/email or password.');
   if (!response.ok || !data.ok || !data.user) throw new Error(data.error || 'Unable to sign in to the online account.');
   return { ...data.user, passwordHash };
 }
@@ -265,7 +266,9 @@ function Login({ role, onBack, onRegister, onContinue, onForgot, notice, setNoti
 
       try {
         u = await authenticateOnlineUser(identity, password);
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to sign in to the online account.';
+        if (/invalid username\/email or password/i.test(message)) return setNotice(message);
         // Keep local development and legacy accounts usable if the hosted registry is temporarily unavailable.
       }
 
