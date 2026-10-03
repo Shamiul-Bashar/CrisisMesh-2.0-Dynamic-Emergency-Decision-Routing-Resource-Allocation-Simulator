@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { readSession, readUsers } from '../../core/auth/credentials';
 import { simulationRequest } from '../../core/simulation/api';
+import { apiUrl } from '../../core/apiBase';
 import type { SimulationIncident, SimulationResponse, SimulationState } from '../../core/simulation/types';
 import EmergencyReport from '../emergency/EmergencyReport';
 import {
@@ -60,6 +61,17 @@ export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [messageVersion,setMessageVersion]=useState(0);
+
+  // Migrate/cache the currently signed-in browser user into the shared hosted registry.
+  // This makes legacy accounts created before the online-registry fix appear on the Author console.
+  useEffect(() => {
+    if (!currentUser) return;
+    void fetch(apiUrl('/api/users/sync'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: currentUser }),
+    }).catch(() => undefined);
+  }, [currentUser?.id]);
 
   const refresh=useCallback(async()=>{
     try{

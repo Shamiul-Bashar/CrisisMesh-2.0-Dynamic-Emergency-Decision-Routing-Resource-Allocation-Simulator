@@ -28,6 +28,62 @@ const transporter = emailUser && emailAppPassword
 
 const otpStore = new Map();
 
+// Shared online citizen registry for the hosted academic simulator.
+// It intentionally lives beside the persistent Node bridge so every browser
+// connected to the same Railway service sees the same registered users.
+// Like the C++ simulation state, this registry is in-memory and resets if the
+// Railway service restarts or is redeployed.
+const userStore = new Map();
+
+const normalizeEmailValue = (value) => String(value ?? '').trim().toLowerCase();
+const normalizePhoneValue = (value) => String(value ?? '').replace(/\D/g, '');
+const normalizeUsernameValue = (value) => String(value ?? '').trim().toLowerCase();
+
+function publicUser(user) {
+  if (!user) return null;
+  const { passwordHash: _passwordHash, ...safe } = user;
+  return safe;
+}
+
+function normalizeUserInput(input) {
+  const user = {
+    id: String(input.id ?? '').trim(),
+    name: String(input.name ?? '').trim(),
+    username: String(input.username ?? '').trim(),
+    phone: normalizePhoneValue(input.phone),
+    email: normalizeEmailValue(input.email),
+    passwordHash: String(input.passwordHash ?? '').trim(),
+    createdAt: Number(input.createdAt) || Date.now(),
+    lastLogin: input.lastLogin === null || input.lastLogin === undefined ? null : Number(input.lastLogin) || null,
+    accountStatus: input.accountStatus === 'Inactive' ? 'Inactive' : 'Active',
+    role: 'user',
+  };
+
+  if (!user.id || !user.name || !user.username || !user.phone || !user.email || !user.passwordHash) {
+    throw new Error('Complete user identity and credential fields are required.');
+  }
+
+  return user;
+}
+
+function findUserByIdentity(identity) {
+  const username = normalizeUsernameValue(identity);
+  const email = normalizeEmailValue(identity);
+  return [...userStore.values()].find((user) =>
+    normalizeUsernameValue(user.username) === username || normalizeEmailValue(user.email) === email
+  ) ?? null;
+}
+
+function identityConflict(candidate) {
+  return [...userStore.values()].find((user) =>
+    user.id !== candidate.id && (
+      normalizeUsernameValue(user.username) === normalizeUsernameValue(candidate.username) ||
+      normalizeEmailValue(user.email) === normalizeEmailValue(candidate.email) ||
+      normalizePhoneValue(user.phone) === normalizePhoneValue(candidate.phone)
+    )
+  ) ?? null;
+}
+
 function buildOtpEmailText(otp) {
   return [
     'CrisisMesh 2.0',
@@ -326,6 +382,123 @@ async function handleSimulation(req, res) {
   }
 }
 
+async function handleUsers(req, res) {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { ok: false, error: 'GET is required.' });
+    return;
+  }
+
+  const users = [...userStore.values()]
+    .map(publicUser)
+    .sort((a, b) => (b.lastLogin ?? b.createdAt ?? 0) - (a.lastLogin ?? a.createdAt ?? 0));
+
+  sendJson(res, 200, { ok: true, users });
+}
+
+async function handleUserAvailability(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const input = await readJsonBody(req);
+    const username = normalizeUsernameValue(input.username);
+    const email = normalizeEmailValue(input.email);
+    const phone = normalizePhoneValue(input.phone);
+
+    const conflicts = {
+      username: [...userStore.values()].some((user) => normalizeUsernameValue(user.username) === username),
+      email: [...userStore.values()].some((user) => normalizeEmailValue(user.email) === email),
+      phone: [...userStore.values()].some((user) => normalizePhoneValue(user.phone) === phone),
+    };
+
+    sendJson(res, 200, { ok: true, available: !Object.values(conflicts).some(Boolean), conflicts });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to check account availability.' });
+  }
+}
+
+async function handleUserSync(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const input = await readJsonBody(req);
+    const candidate = normalizeUserInput(input.user ?? input);
+    const conflict = identityConflict(candidate);
+
+    if (conflict) {
+      sendJson(res, 409, { ok: false, error: 'A different account already uses this username, email, or phone number.' });
+      return;
+    }
+
+    const existing = userStore.get(candidate.id);
+    const merged = {
+      ...existing,
+      ...candidate,
+      createdAt: existing?.createdAt ?? candidate.createdAt,
+      lastLogin: candidate.lastLogin ?? existing?.lastLogin ?? null,
+    };
+    userStore.set(merged.id, merged);
+
+    sendJson(res, 200, { ok: true, user: publicUser(merged) });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to synchronize user.' });
+  }
+}
+
+async function handleUserLogin(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const input = await readJsonBody(req);
+    const identity = String(input.identity ?? '').trim();
+    const passwordHash = String(input.passwordHash ?? '').trim();
+    const user = findUserByIdentity(identity);
+
+    if (!user || !passwordHash || user.passwordHash !== passwordHash) {
+      sendJson(res, 401, { ok: false, error: 'Invalid username/email or password.' });
+      return;
+    }
+
+    const updated = { ...user, lastLogin: Date.now(), accountStatus: 'Active' };
+    userStore.set(updated.id, updated);
+    sendJson(res, 200, { ok: true, user: publicUser(updated) });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to sign in.' });
+  }
+}
+
+async function handleUserPassword(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const input = await readJsonBody(req);
+    const userId = String(input.userId ?? '').trim();
+    const passwordHash = String(input.passwordHash ?? '').trim();
+    const user = userStore.get(userId);
+
+    if (!user || !passwordHash) {
+      sendJson(res, 404, { ok: false, error: 'The intended online account could not be found.' });
+      return;
+    }
+
+    userStore.set(userId, { ...user, passwordHash });
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to update password.' });
+  }
+}
+
 async function handleSendAuthorOtp(req, res) {
   if (req.method !== 'POST') {
     sendJson(res, 405, { ok: false, error: 'POST is required.' });
@@ -465,6 +638,31 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === '/api/simulation') {
     await handleSimulation(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users') {
+    await handleUsers(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users/check') {
+    await handleUserAvailability(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users/sync') {
+    await handleUserSync(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users/login') {
+    await handleUserLogin(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users/password') {
+    await handleUserPassword(req, res);
     return;
   }
 

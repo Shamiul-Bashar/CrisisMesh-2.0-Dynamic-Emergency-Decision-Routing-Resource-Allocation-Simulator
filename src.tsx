@@ -87,6 +87,60 @@ function getUsers(): StoredUser[] {
 }
 function saveUsers(users: StoredUser[]) { writeUsersVerified(localStorage, users); }
 
+async function syncOnlineUser(user: StoredUser): Promise<void> {
+  const response = await fetch(apiUrl('/api/users/sync'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user }),
+  });
+  const data = await response.json() as { ok?: boolean; error?: string };
+  if (!response.ok || !data.ok) throw new Error(data.error || 'Unable to synchronize the online account.');
+}
+
+async function checkOnlineUserAvailability(user: Pick<StoredUser, 'username' | 'email' | 'phone'>) {
+  const response = await fetch(apiUrl('/api/users/check'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(user),
+  });
+  const data = await response.json() as {
+    ok?: boolean;
+    available?: boolean;
+    conflicts?: { username?: boolean; email?: boolean; phone?: boolean };
+    error?: string;
+  };
+  if (!response.ok || !data.ok) throw new Error(data.error || 'Unable to verify account availability.');
+  return data;
+}
+
+async function authenticateOnlineUser(identity: string, password: string): Promise<StoredUser | null> {
+  const passwordHash = await hashText(password);
+  const response = await fetch(apiUrl('/api/users/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity, passwordHash }),
+  });
+  if (response.status === 401) return null;
+  const data = await response.json() as {
+    ok?: boolean;
+    user?: Omit<StoredUser, 'passwordHash'>;
+    error?: string;
+  };
+  if (!response.ok || !data.ok || !data.user) throw new Error(data.error || 'Unable to sign in to the online account.');
+  return { ...data.user, passwordHash };
+}
+
+async function updateOnlineUserPassword(userId: string, password: string): Promise<void> {
+  const passwordHash = await hashText(password);
+  const response = await fetch(apiUrl('/api/users/password'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, passwordHash }),
+  });
+  const data = await response.json() as { ok?: boolean; error?: string };
+  if (!response.ok || !data.ok) throw new Error(data.error || 'Unable to update the online password.');
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>(() => {
     return readSession(sessionStorage) ? 'dashboard' : 'home';
@@ -113,6 +167,13 @@ export default function App() {
       return;
     }
     if (pendingUser) {
+      try {
+        await syncOnlineUser(pendingUser);
+      } catch (error) {
+        setAuthNotice(error instanceof Error ? error.message : 'Unable to synchronize the online account.');
+        setScreen('register');
+        return;
+      }
       const users = getUsers();
       saveUsers([...users.filter((u) => u.id !== pendingUser.id), pendingUser]);
       setPendingUser(null);
@@ -200,9 +261,29 @@ function Login({ role, onBack, onRegister, onContinue, onForgot, notice, setNoti
       setNotice(''); onContinue('author');
     } else {
       const users = getUsers();
-      const u = await authenticateUser(localStorage, identity, password);
+      let u: StoredUser | null = null;
+
+      try {
+        u = await authenticateOnlineUser(identity, password);
+      } catch {
+        // Keep local development and legacy accounts usable if the hosted registry is temporarily unavailable.
+      }
+
+      if (!u) {
+        u = await authenticateUser(localStorage, identity, password);
+        if (u) {
+          const migrated = { ...u, lastLogin: Date.now(), accountStatus: 'Active' as const };
+          try { await syncOnlineUser(migrated); } catch { /* retry from dashboard/background sync */ }
+          u = migrated;
+        }
+      }
+
       if (!u) return setNotice('Invalid username/email or password.');
-      const updatedUsers: StoredUser[] = users.map((user) => user.id === u.id ? { ...user, lastLogin: Date.now(), accountStatus: 'Active' as const } : user);
+
+      const updatedUsers: StoredUser[] = [
+        ...users.filter((user) => user.id !== u!.id),
+        { ...u, lastLogin: u.lastLogin ?? Date.now(), accountStatus: 'Active' as const },
+      ];
       saveUsers(updatedUsers);
       setNotice(''); onContinue(u.id);
     }
@@ -816,6 +897,11 @@ function ForgotPassword({
 
       } else if (userMatch) {
         await updateUserPassword(localStorage, userMatch.id, newPassword);
+        try {
+          await updateOnlineUserPassword(userMatch.id, newPassword);
+        } catch {
+          // A legacy local account can still be migrated on its next successful sign-in.
+        }
       } else {
         throw new Error('The intended user account could not be identified.');
       }
@@ -1495,6 +1581,23 @@ function Register({ onBack, onCreated }: { onBack: () => void; onCreated: (user:
     if (users.some(u => normalizeUsername(u.username) === normalizeUsername(f.username))) return setError('An account already exists with this username. Try another username.');
     if (users.some(u => normalizePhone(u.phone) === normalizePhone(f.phone))) return setError('An account already exists with this phone number. Try another number.');
     if (users.some(u => normalizeEmail(u.email) === normalizeEmail(f.email))) return setError('An account already exists with this email. Try another email.');
+
+    try {
+      const availability = await checkOnlineUserAvailability({
+        username: f.username,
+        email: f.email,
+        phone: f.phone,
+      });
+      if (!availability.available) {
+        if (availability.conflicts?.username) return setError('An account already exists with this username. Try another username.');
+        if (availability.conflicts?.phone) return setError('An account already exists with this phone number. Try another number.');
+        if (availability.conflicts?.email) return setError('An account already exists with this email. Try another email.');
+        return setError('An account already exists with these details.');
+      }
+    } catch (error) {
+      return setError(error instanceof Error ? error.message : 'Unable to verify account availability.');
+    }
+
     const user: StoredUser = { id: crypto.randomUUID(), name: f.name.trim(), username: f.username.trim(), phone: normalizePhone(f.phone), email: normalizeEmail(f.email), passwordHash: await hashText(f.password), createdAt: Date.now(), lastLogin: null, accountStatus: 'Active', role: 'user' };
     onCreated(user);
   };

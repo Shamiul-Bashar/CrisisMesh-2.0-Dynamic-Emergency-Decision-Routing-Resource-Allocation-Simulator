@@ -8,6 +8,7 @@ import DsaArchitecturePanel from './DsaArchitecturePanel';
 import { visibleIncidents, type Selection } from './mapPresentation';
 import { Graph } from '../../core/graph/Graph';
 import { simulationRequest } from '../../core/simulation/api';
+import { apiUrl } from '../../core/apiBase';
 import { graphFromNetwork } from '../../core/simulation/presentation';
 import type { ReportResult, SimulationResponse, SimulationState } from '../../core/simulation/types';
 import './command-center.css';
@@ -18,7 +19,7 @@ type AuthorUser = {
   username: string;
   phone: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   createdAt?: number;
   lastLogin?: number | null;
   accountStatus?: 'Active' | 'Inactive';
@@ -107,7 +108,9 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
 }
 
 function UserDatabasePanel() {
-  const [usersVersion, setUsersVersion] = useState(0);
+  const [users,setUsers]=useState<AuthorUser[]>([]);
+  const [usersLoading,setUsersLoading]=useState(true);
+  const [usersError,setUsersError]=useState('');
   const [messagesVersion, setMessagesVersion] = useState(0);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'Active' | 'Inactive'>('ALL');
@@ -119,8 +122,37 @@ function UserDatabasePanel() {
   const [broadcastBody, setBroadcastBody] = useState('');
   const [directFeedback, setDirectFeedback] = useState<string | null>(null);
   const [broadcastFeedback, setBroadcastFeedback] = useState<string | null>(null);
-  const users = useMemo(() => readAuthorUsers(), [usersVersion]);
   const messages = useMemo(() => readAuthorMessages(), [messagesVersion]);
+
+  const refreshUsers = useCallback(async () => {
+    setUsersError('');
+    try {
+      // One-time/ongoing migration of legacy users that existed only in this Author browser.
+      const legacyUsers = readAuthorUsers();
+      await Promise.allSettled(legacyUsers.map((user) => fetch(apiUrl('/api/users/sync'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user }),
+      })));
+
+      const response = await fetch(apiUrl('/api/users'));
+      const data = await response.json() as { ok?: boolean; users?: AuthorUser[]; error?: string };
+      if (!response.ok || !data.ok || !Array.isArray(data.users)) {
+        throw new Error(data.error || 'Unable to load the shared online user registry.');
+      }
+      setUsers(data.users);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Unable to load registered users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshUsers();
+    const timer = window.setInterval(() => void refreshUsers(), 3000);
+    return () => window.clearInterval(timer);
+  }, [refreshUsers]);
 
   const filteredUsers = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -155,7 +187,7 @@ function UserDatabasePanel() {
   }).slice().reverse();
 
   const refreshStore = () => {
-    setUsersVersion((value) => value + 1);
+    void refreshUsers();
     setMessagesVersion((value) => value + 1);
   };
 
@@ -226,7 +258,8 @@ function UserDatabasePanel() {
       <button className="summary-action" onClick={() => refreshStore()}><RefreshCw size={14} /> Refresh</button>
     </div>
 
-    <p className="author-db-subtitle">Manage and review registered CrisisMesh users.</p>
+    <p className="author-db-subtitle">Manage and review the shared online CrisisMesh user registry. New browser and mobile registrations synchronize automatically.</p>
+    {usersError&&<div className="empty-state"><strong>User registry temporarily unavailable</strong><span>{usersError}</span></div>}
 
     <div className="author-db-stats">
       <div><span>Total Users</span><b>{users.length}</b></div>
@@ -310,7 +343,7 @@ function UserDatabasePanel() {
                 </div>
               </div>
             );
-          }) : <div className="empty-state"><strong>No users found</strong><span>Try a different search term or clear the current filters.</span></div>}
+          }) : <div className="empty-state"><strong>{usersLoading?'Synchronizing users…':'No users found'}</strong><span>{usersLoading?'Loading the shared online registry.':'Try a different search term or clear the current filters.'}</span></div>}
         </div>
       </section>
 
