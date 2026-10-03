@@ -605,8 +605,12 @@ async function handleMessages(req, res, url) {
       return;
     }
 
+    const user = userStore.get(userId);
     const messages = [...messageStore.values()]
-      .filter((message) => message.recipientId === userId || message.recipientId === 'all')
+      .filter((message) =>
+        message.recipientId === userId ||
+        (message.recipientId === 'all' && message.createdAt >= (user?.createdAt ?? 0))
+      )
       .sort((a, b) => b.createdAt - a.createdAt);
 
     sendJson(res, 200, { ok: true, messages });

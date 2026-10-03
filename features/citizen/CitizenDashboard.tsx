@@ -88,7 +88,7 @@ export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
       const response=await fetch(apiUrl(`/api/messages?userId=${encodeURIComponent(currentUserId)}`));
       const data=await response.json() as {ok?:boolean;messages?:CitizenMessage[];error?:string};
       if(!response.ok||!data.ok||!Array.isArray(data.messages))throw new Error(data.error||'Unable to load messages.');
-      setSharedMessages(data.messages);
+      setSharedMessages((current) => JSON.stringify(current) === JSON.stringify(data.messages) ? current : data.messages!);
       localStorage.setItem('cm-user-messages',JSON.stringify(data.messages));
     }catch{
       // Keep the last successfully synchronized inbox visible during transient network issues.

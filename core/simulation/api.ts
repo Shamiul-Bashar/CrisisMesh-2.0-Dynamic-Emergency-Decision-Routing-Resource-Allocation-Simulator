@@ -44,24 +44,24 @@ export async function simulationRequest<T extends SimulationResponse = Simulatio
     try {
       data = await response.json();
     } catch {
-      throw new Error('The C++ Simulation Development Bridge returned invalid JSON.');
+      throw new Error('The C++ Simulation Bridge returned invalid JSON.');
     }
 
     if (!isSimulationResponse(data)) {
-      throw new Error('The C++ Simulation Development Bridge returned an invalid response contract.');
+      throw new Error('The C++ Simulation Bridge returned an invalid response contract.');
     }
 
     if (!response.ok || !data.ok) {
-      throw new Error(data.error || data.message || 'C++ Simulation Development Bridge unavailable.');
+      throw new Error(data.error || data.message || 'C++ Simulation Bridge unavailable.');
     }
 
     return data as T;
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('C++ Simulation Development Bridge request timed out.');
+      throw new Error('C++ Simulation Bridge request timed out.');
     }
     if (error instanceof TypeError) {
-      throw new Error('C++ Simulation Development Bridge is offline or unreachable.');
+      throw new Error('C++ Simulation Bridge is offline or unreachable.');
     }
     throw error;
   } finally {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, Gauge, LocateFixed, Mail, MessageSquareText, Pause, Play, Search, Send, RefreshCw, UserRound, Users, X } from 'lucide-react';
 import MasterDSALab from './MasterDSALab';
 import TacticalMap from './TacticalMap';
@@ -111,7 +111,7 @@ export default function CommandCenter({ onHome }: { onHome: () => void }) {
         <div className="eoc-incident-list">{active.map(i=><button key={i.incidentId} className={`status-${i.status.toLowerCase().replace(/_/g,'-')}`} aria-pressed={selection?.id===i.incidentId} onClick={()=>select({kind:'incident',id:i.incidentId})}><span className="eoc-incident-top"><b>{i.incidentId}</b><em>P{i.priorityScore}</em></span><strong>{readable(i.type)}</strong><span>{state?.network.nodes.find(node=>node.locationId===i.locationId)?.name??i.locationId} · {readable(i.status)}</span><small>{i.assignedResponderId||'Awaiting responder assignment'}</small></button>)}{state&&!active.length&&<div className="eoc-empty"><b>No active incidents</b><span>Citizen reports will enter the C++ intake queue here.</span></div>}{!state&&<div className="eoc-empty"><b>{bridgeStatus==='CHECKING'?'Connecting to engine':'Engine offline'}</b><span>Operational incidents will appear after synchronization.</span></div>}</div>
         <footer><span>Priority and dispatch authority</span><b>C++ SimulationEngine</b></footer>
       </aside>
-      <section className="eoc-map">{state?<TacticalMap state={state} selection={selection} onSelection={select} analysisOpen={analysisOpen} onAnalysisClose={()=>setAnalysisOpen(false)} paused={paused||bridgeStatus!=='ONLINE'}/>:<div className="eoc-map-state"><Activity/><b>{bridgeStatus==='CHECKING'?'Connecting to the simulation engine':'Operational map unavailable'}</b><span>{bridgeStatus==='CHECKING'?'Loading authoritative network state…':'Start the development bridge, then retry the connection.'}</span></div>}</section>
+      <section className="eoc-map">{state?<TacticalMap state={state} selection={selection} onSelection={select} analysisOpen={analysisOpen} onAnalysisClose={()=>setAnalysisOpen(false)} paused={paused||bridgeStatus!=='ONLINE'}/>:<div className="eoc-map-state"><Activity/><b>{bridgeStatus==='CHECKING'?'Connecting to the simulation engine':'Operational map unavailable'}</b><span>{bridgeStatus==='CHECKING'?'Loading authoritative network state…':'The hosted simulation service is currently unreachable. Retry the connection.'}</span></div>}</section>
       <aside className="eoc-detail"><header><b>{overviewOpen||!selection?'Operations overview':'Selection details'}</b><div>{selection&&<button onClick={()=>setOverviewOpen(v=>!v)}>{overviewOpen?'Show selection':'Overview'}</button>}{selection&&!overviewOpen&&<button aria-label="Clear selection" onClick={()=>select(null)}><X size={15}/></button>}</div></header>
         {state&&(overviewOpen||!selection)?<OperationsPanel state={state} paused={paused} processing={processing} onTogglePaused={()=>setPaused(v=>!v)} onProcessNext={()=>act('PROCESS_NEXT')} onUndoBlock={()=>act('UNDO_BLOCK')} onRefresh={refresh} onSelectIncident={id=>select({kind:'incident',id})}/>:incident&&state?<RouteInspector key={incident.incidentId} incident={incident} dispatch={state.dispatches.find(d=>d.incidentId===incident.incidentId)} state={state} onRefresh={refresh} onAnalyze={()=>setAnalysisOpen(true)}/>:road?<div className="tm-inspector"><span className="tm-kicker">ROAD SEGMENT</span><h2>{road.roadId}</h2><p>{state?.network.nodes.find(n=>n.locationId===road.from)?.name??road.from} → {state?.network.nodes.find(n=>n.locationId===road.to)?.name??road.to}</p><div className="tm-facts"><span>Distance<b>{road.distance.toFixed(2)} km</b></span><span>Travel time<b>{road.travelTime.toFixed(1)} min</b></span><span>Status<b>{road.blocked?'BLOCKED':'OPEN'}</b></span><span>Road class<b>{readable(road.roadClass)}</b></span><span>Congestion<b>{road.congestion}</b></span><span>Risk<b>{road.risk}</b></span><span>Capacity<b>{road.capacity}</b></span></div><button className={road.blocked?'eoc-safe-action':'eoc-danger-action'} disabled={processing} onClick={()=>void act(road.blocked?'UNBLOCK':'BLOCK',{edgeId:road.roadId})}>{road.blocked?'Reopen road':'Block road'}</button><p>Road changes advance the graph revision and invalidate older route snapshots.</p></div>:facility||responder?<div className="tm-inspector"><span className="tm-kicker">{facility?'FACILITY':'RESPONDER'}</span><h2>{facility?.name||responder?.responderId}</h2><div className="tm-facts">{Object.entries(facility||responder||{}).map(([key,value])=><span key={key}>{readable(key)}<b>{readable(String(value??'—'))}</b></span>)}</div>{responder?.assignedIncidentId&&<button onClick={()=>select({kind:'incident',id:responder.assignedIncidentId!})}>Focus assigned incident</button>}</div>:null}
       </aside>
@@ -135,24 +135,29 @@ function UserDatabasePanel() {
   const [broadcastBody, setBroadcastBody] = useState('');
   const [directFeedback, setDirectFeedback] = useState<string | null>(null);
   const [broadcastFeedback, setBroadcastFeedback] = useState<string | null>(null);
+  const legacyMigrationDone = useRef(false);
 
   const refreshUsers = useCallback(async () => {
     try {
-      // Migrate legacy users/messages from this browser without making the UI depend on migration success.
-      const legacyUsers = readAuthorUsers();
-      const legacyMessages = readAuthorMessages();
-      await Promise.allSettled([
-        ...legacyUsers.map((user) => fetch(apiUrl('/api/users/sync'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user }),
-        })),
-        ...legacyMessages.map((message) => fetch(apiUrl('/api/messages'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message }),
-        })),
-      ]);
+      // Migrate legacy browser-only records exactly once. Re-posting the same
+      // records on every polling cycle caused needless network traffic and UI churn.
+      if (!legacyMigrationDone.current) {
+        legacyMigrationDone.current = true;
+        const legacyUsers = readAuthorUsers();
+        const legacyMessages = readAuthorMessages();
+        await Promise.allSettled([
+          ...legacyUsers.map((user) => fetch(apiUrl('/api/users/sync'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user }),
+          })),
+          ...legacyMessages.map((message) => fetch(apiUrl('/api/messages'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+          })),
+        ]);
+      }
 
       // Load users independently from messages. A message-bus problem must never hide valid users.
       const usersResponse = await fetch(apiUrl('/api/users'));
@@ -185,7 +190,7 @@ function UserDatabasePanel() {
 
     // Quiet background sync: preserve cross-device registration updates without
     // rebuilding the panel every few seconds. State changes only when data changes.
-    const timer = window.setInterval(() => void refreshUsers(), 15000);
+    const timer = window.setInterval(() => void refreshUsers(), 5000);
     return () => window.clearInterval(timer);
   }, [refreshUsers]);
 
@@ -542,7 +547,7 @@ function OverviewPanel({ g, paused, setPaused, blocked, lastSimulation, bridgeSt
     <div className="allocation-strip"><span>SHELTERS <b>{state?.shelters.filter(s => s.status === 'OPERATIONAL').length ?? 0}</b></span><span>AVAILABLE CAPACITY <b>{state?.shelters.reduce((sum, s) => sum + s.availableCapacity, 0) ?? 0}</b></span><span>RESOURCE TYPES <b>{state?.resources.length ?? 0}</b></span></div>
 
     <div className="section-label">SIMULATION CONTROL</div><button className="wide-action" onClick={() => setPaused(!paused)}>{paused ? <Play size={14} /> : <Pause size={14} />} {paused ? 'RESUME MAP' : 'PAUSE MAP'}</button><button className="wide-action" disabled={!state?.roadUndoStack?.canUndo} onClick={onUndoBlock}>UNDO LAST ROAD BLOCK · STACK DEPTH {state?.roadUndoStack?.depth ?? 0}</button>
-    <div className="section-label">ENGINE STATUS</div><div className="health-list"><span><Gauge /> C++ Simulation Development Bridge <b className={bridgeStatus === 'ONLINE' ? 'good' : 'warn'}>{bridgeStatus}</b></span><span><Clock3 /> Graph topology <b>{state?.graph.vertices ?? g.getVertexCount()} / {state?.graph.roads ?? g.getEdgeCount()}</b></span><span><LocateFixed /> Decision authority <b className="good">C++ ENGINE</b></span></div>
+    <div className="section-label">ENGINE STATUS</div><div className="health-list"><span><Gauge /> C++ Simulation Bridge <b className={bridgeStatus === 'ONLINE' ? 'good' : 'warn'}>{bridgeStatus}</b></span><span><Clock3 /> Graph topology <b>{state?.graph.vertices ?? g.getVertexCount()} / {state?.graph.roads ?? g.getEdgeCount()}</b></span><span><LocateFixed /> Decision authority <b className="good">C++ ENGINE</b></span></div>
     <p className="detail-note">React presents C++ state and traces. It does not calculate priority, choose responders, allocate shelters, or calculate routes.</p>
     <OpsConsole state={state} tab={opsTab} setTab={setOpsTab} incidentId={selectedIncidentId} onRefresh={onRefresh} />
   </div>;
@@ -550,7 +555,7 @@ function OverviewPanel({ g, paused, setPaused, blocked, lastSimulation, bridgeSt
 
 function OpsConsole({ state, tab, setTab, incidentId, onRefresh }: { state: SimulationState | null; tab: 'DISPATCH'|'TIMELINE'|'PIPELINE'|'RESPONDERS'; setTab: (v: 'DISPATCH'|'TIMELINE'|'PIPELINE'|'RESPONDERS') => void; incidentId?: string | null; onRefresh: () => Promise<void> }) {
   const tabs = ['DISPATCH','TIMELINE','PIPELINE','RESPONDERS'] as const;
-  return <section className="ops-console"><div className="ops-console-head"><span>OPERATIONS CONSOLE</span><small>{state?.bridge || 'C++ Simulation Development Bridge'}</small></div><nav>{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>)}</nav>
+  return <section className="ops-console"><div className="ops-console-head"><span>OPERATIONS CONSOLE</span><small>{state?.bridge || 'C++ Simulation Bridge'}</small></div><nav>{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>)}</nav>
     {tab === 'DISPATCH' && <div className="ops-console-grid">{(state?.activeDispatches || []).map(d => <article key={d.incidentId}><b>{d.incidentId}</b><span>{d.responderId} · {d.status}</span><small>{d.origin} → {d.destination}</small><small>{d.distance.toFixed(2)} KM · COST {d.routeCost.toFixed(2)}</small><small>{d.pathNodes.join(' → ')}</small></article>)}{!state?.activeDispatches?.length && <div className="empty-state">No active C++ dispatches.</div>}</div>}
     {tab === 'TIMELINE' && <div className="ops-events">{(state?.eventHistory || state?.recentEvents || []).filter(e => !incidentId || e.incidentId === incidentId).slice(-20).map(e => <div key={`${e.step}-${e.type}`}><b>{String(e.step).padStart(2,'0')}</b><span>{e.type.replace(/_/g,' ')}</span><small>{e.incidentId || 'ENGINE'} · {e.algorithm} · {e.message}</small></div>)}{!(state?.eventHistory || state?.recentEvents || []).filter(e => !incidentId || e.incidentId === incidentId).length && <div className="empty-state">No C++ events recorded for this incident.</div>}</div>}
     {tab === 'PIPELINE' && <PipelineStatus events={state?.eventHistory} incidentId={incidentId} />}
