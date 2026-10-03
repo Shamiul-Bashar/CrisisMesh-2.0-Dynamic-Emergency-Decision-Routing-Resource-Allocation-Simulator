@@ -137,40 +137,42 @@ function UserDatabasePanel() {
   const [broadcastFeedback, setBroadcastFeedback] = useState<string | null>(null);
 
   const refreshUsers = useCallback(async () => {
-    setUsersError('');
     try {
-      // One-time/ongoing migration of legacy users that existed only in this Author browser.
+      // Migrate legacy users/messages from this browser without making the UI depend on migration success.
       const legacyUsers = readAuthorUsers();
-      await Promise.allSettled(legacyUsers.map((user) => fetch(apiUrl('/api/users/sync'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user }),
-      })));
-
-      // Migrate legacy messages from this Author browser once; server IDs make the sync idempotent.
       const legacyMessages = readAuthorMessages();
-      await Promise.allSettled(legacyMessages.map((message) => fetch(apiUrl('/api/messages'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-      })));
-
-      const [usersResponse, messagesResponse] = await Promise.all([
-        fetch(apiUrl('/api/users')),
-        fetch(apiUrl('/api/messages?scope=author')),
+      await Promise.allSettled([
+        ...legacyUsers.map((user) => fetch(apiUrl('/api/users/sync'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user }),
+        })),
+        ...legacyMessages.map((message) => fetch(apiUrl('/api/messages'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        })),
       ]);
-      const usersData = await usersResponse.json() as { ok?: boolean; users?: AuthorUser[]; error?: string };
-      const messagesData = await messagesResponse.json() as { ok?: boolean; messages?: AuthorMessage[]; error?: string };
 
+      // Load users independently from messages. A message-bus problem must never hide valid users.
+      const usersResponse = await fetch(apiUrl('/api/users'));
+      const usersData = await usersResponse.json() as { ok?: boolean; users?: AuthorUser[]; error?: string };
       if (!usersResponse.ok || !usersData.ok || !Array.isArray(usersData.users)) {
         throw new Error(usersData.error || 'Unable to load the shared online user registry.');
       }
-      if (!messagesResponse.ok || !messagesData.ok || !Array.isArray(messagesData.messages)) {
-        throw new Error(messagesData.error || 'Unable to load the shared message bus.');
-      }
 
-      setUsers(usersData.users);
-      setMessages(messagesData.messages);
+      setUsers((current) => JSON.stringify(current) === JSON.stringify(usersData.users) ? current : usersData.users!);
+      setUsersError('');
+
+      try {
+        const messagesResponse = await fetch(apiUrl('/api/messages?scope=author'));
+        const messagesData = await messagesResponse.json() as { ok?: boolean; messages?: AuthorMessage[]; error?: string };
+        if (messagesResponse.ok && messagesData.ok && Array.isArray(messagesData.messages)) {
+          setMessages((current) => JSON.stringify(current) === JSON.stringify(messagesData.messages) ? current : messagesData.messages!);
+        }
+      } catch {
+        // Keep the last synchronized communication history visible if messaging is temporarily unavailable.
+      }
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Unable to load registered users.');
     } finally {
@@ -180,7 +182,10 @@ function UserDatabasePanel() {
 
   useEffect(() => {
     void refreshUsers();
-    const timer = window.setInterval(() => void refreshUsers(), 3000);
+
+    // Quiet background sync: preserve cross-device registration updates without
+    // rebuilding the panel every few seconds. State changes only when data changes.
+    const timer = window.setInterval(() => void refreshUsers(), 15000);
     return () => window.clearInterval(timer);
   }, [refreshUsers]);
 
@@ -249,7 +254,7 @@ function UserDatabasePanel() {
       setComposeSubject('Operations update');
       setDirectFeedback('Message delivered to the user inbox.');
       setBroadcastFeedback(null);
-      await refreshUsers();
+      setMessages((current) => [delivered, ...current.filter((message) => message.id !== delivered.id)]);
     } catch (error) {
       setDirectFeedback(error instanceof Error ? error.message : 'Unable to deliver the message.');
     }
@@ -282,7 +287,7 @@ function UserDatabasePanel() {
       setBroadcastSubject('City-wide advisory');
       setBroadcastFeedback('Announcement delivered to all registered user inboxes.');
       setDirectFeedback(null);
-      await refreshUsers();
+      setMessages((current) => [delivered, ...current.filter((message) => message.id !== delivered.id)]);
     } catch (error) {
       setBroadcastFeedback(error instanceof Error ? error.message : 'Unable to deliver the announcement.');
     }
