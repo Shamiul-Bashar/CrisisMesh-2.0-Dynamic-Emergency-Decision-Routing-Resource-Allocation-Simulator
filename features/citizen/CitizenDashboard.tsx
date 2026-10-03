@@ -35,15 +35,6 @@ import './citizen-dashboard.css';
 
 type View = 'OVERVIEW' | 'MESSAGES' | 'HISTORY' | 'PROFILE';
 
-function readMessages(): CitizenMessage[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem('cm-user-messages') || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 const readable = (value: string) => value.replace(/_/g, ' ');
 
 export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
@@ -60,7 +51,7 @@ export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
   const [reason,setReason]=useState('');
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const [messageVersion,setMessageVersion]=useState(0);
+  const [sharedMessages,setSharedMessages]=useState<CitizenMessage[]>([]);
 
   // Migrate/cache the currently signed-in browser user into the shared hosted registry.
   // This makes legacy accounts created before the online-registry fix appear on the Author console.
@@ -79,7 +70,6 @@ export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
       setState(response.state);
       setConnection('ONLINE');
       setError('');
-      setMessageVersion(value=>value+1);
     }catch(error){
       setConnection('OFFLINE');
       setError(error instanceof Error?error.message:'The emergency service connection is unavailable.');
@@ -92,10 +82,29 @@ export default function CitizenDashboard({ onHome }: { onHome: () => void }) {
     return()=>window.clearInterval(timer);
   },[refresh]);
 
+  const refreshMessages=useCallback(async()=>{
+    if(!currentUserId){setSharedMessages([]);return;}
+    try{
+      const response=await fetch(apiUrl(`/api/messages?userId=${encodeURIComponent(currentUserId)}`));
+      const data=await response.json() as {ok?:boolean;messages?:CitizenMessage[];error?:string};
+      if(!response.ok||!data.ok||!Array.isArray(data.messages))throw new Error(data.error||'Unable to load messages.');
+      setSharedMessages(data.messages);
+      localStorage.setItem('cm-user-messages',JSON.stringify(data.messages));
+    }catch{
+      // Keep the last successfully synchronized inbox visible during transient network issues.
+    }
+  },[currentUserId]);
+
+  useEffect(()=>{
+    void refreshMessages();
+    const timer=window.setInterval(()=>void refreshMessages(),3000);
+    return()=>window.clearInterval(timer);
+  },[refreshMessages]);
+
   const owned=useMemo(()=>incidentsOwnedBy(state?.incidents??[],currentUserId),[state?.incidents,currentUserId]);
   const active=useMemo(()=>owned.filter(incident=>incident.status!=='CLOSED').slice().sort((a,b)=>b.reportedSequence-a.reportedSequence),[owned]);
   const history=useMemo(()=>owned.filter(incident=>incident.status==='CLOSED').slice().sort((a,b)=>b.reportedSequence-a.reportedSequence),[owned]);
-  const messages=useMemo(()=>messagesVisibleTo(readMessages(),currentUserId),[currentUserId,messageVersion]);
+  const messages=useMemo(()=>messagesVisibleTo(sharedMessages,currentUserId),[currentUserId,sharedMessages]);
 
   const responderFor=(incident:SimulationIncident)=>state?.responders.find(responder=>responder.responderId===incident.assignedResponderId);
   const locationName=(locationId:string)=>state?.network.nodes.find(node=>node.locationId===locationId)?.name ?? locationId;

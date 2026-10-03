@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import nodemailer from 'nodemailer';
 
 const PORT = Number.parseInt(process.env.PORT || '8080', 10);
@@ -22,6 +22,7 @@ const emailUser = (process.env.EMAIL_USER || '').trim();
 const emailAppPassword = (process.env.EMAIL_APP_PASSWORD || '').replace(/\s+/g, '').trim();
 const authorRecoveryEmail = (process.env.AUTHOR_RECOVERY_EMAIL || process.env.EMAIL_USER || '').trim().toLowerCase();
 const userDataPath = (process.env.USER_DATA_PATH || '').trim();
+const messageDataPath = (process.env.MESSAGE_DATA_PATH || (userDataPath ? resolve(dirname(userDataPath), 'messages.json') : '')).trim();
 
 const transporter = emailUser && emailAppPassword
   ? nodemailer.createTransport({ service: 'gmail', auth: { user: emailUser, pass: emailAppPassword } })
@@ -29,12 +30,11 @@ const transporter = emailUser && emailAppPassword
 
 const otpStore = new Map();
 
-// Shared online citizen registry for the hosted academic simulator.
-// It intentionally lives beside the persistent Node bridge so every browser
-// connected to the same Railway service sees the same registered users.
-// Like the C++ simulation state, this registry is in-memory and resets if the
-// Railway service restarts or is redeployed.
+// Shared online citizen registry and author-to-citizen message bus.
+// Both are kept in memory for fast access and persisted to the Railway volume
+// when USER_DATA_PATH is configured.
 const userStore = new Map();
+const messageStore = new Map();
 
 const normalizeEmailValue = (value) => String(value ?? '').trim().toLowerCase();
 const normalizePhoneValue = (value) => String(value ?? '').replace(/\D/g, '');
@@ -111,6 +111,60 @@ function loadUserStore() {
 }
 
 loadUserStore();
+
+function normalizeMessageInput(input) {
+  const recipientId = String(input.recipientId ?? '').trim();
+  const senderId = String(input.senderId ?? 'author').trim() || 'author';
+  const senderName = String(input.senderName ?? 'Author Console').trim() || 'Author Console';
+  const subject = String(input.subject ?? '').trim().slice(0, 80) || 'Operations update';
+  const body = String(input.body ?? '').trim().slice(0, 500);
+  const type = input.type === 'broadcast' || recipientId === 'all' ? 'broadcast' : 'individual';
+
+  if (!recipientId || !body) throw new Error('Message recipient and body are required.');
+  if (senderId !== 'author') throw new Error('Only the Author console can send operational messages.');
+  if (recipientId !== 'all' && !userStore.has(recipientId)) {
+    throw new Error('The selected recipient is not registered in the shared user registry.');
+  }
+
+  return {
+    id: String(input.id ?? '').trim() || randomUUID(),
+    recipientId,
+    senderId,
+    senderName,
+    subject,
+    body,
+    createdAt: Number(input.createdAt) || Date.now(),
+    read: Boolean(input.read),
+    type,
+  };
+}
+
+function persistMessageStore() {
+  if (!messageDataPath) return;
+  mkdirSync(dirname(messageDataPath), { recursive: true });
+  writeFileSync(messageDataPath, JSON.stringify([...messageStore.values()], null, 2), 'utf8');
+}
+
+function loadMessageStore() {
+  if (!messageDataPath || !existsSync(messageDataPath)) return;
+  try {
+    const parsed = JSON.parse(readFileSync(messageDataPath, 'utf8'));
+    if (!Array.isArray(parsed)) return;
+    for (const raw of parsed) {
+      try {
+        const message = normalizeMessageInput(raw);
+        messageStore.set(message.id, message);
+      } catch {
+        // Ignore malformed or orphaned legacy messages.
+      }
+    }
+    console.log(`[CrisisMesh Messages] loaded ${messageStore.size} persisted message(s).`);
+  } catch (error) {
+    console.error('[CrisisMesh Messages] unable to load persisted messages:', error instanceof Error ? error.message : String(error));
+  }
+}
+
+loadMessageStore();
 
 function buildOtpEmailText(otp) {
   return [
@@ -535,6 +589,46 @@ async function handleUserPassword(req, res) {
   }
 }
 
+async function handleMessages(req, res, url) {
+  if (req.method === 'GET') {
+    const scope = String(url.searchParams.get('scope') ?? '').trim();
+    const userId = String(url.searchParams.get('userId') ?? '').trim();
+
+    if (scope === 'author') {
+      const messages = [...messageStore.values()].sort((a, b) => b.createdAt - a.createdAt);
+      sendJson(res, 200, { ok: true, messages });
+      return;
+    }
+
+    if (!userId || !userStore.has(userId)) {
+      sendJson(res, 400, { ok: false, error: 'A registered userId is required.' });
+      return;
+    }
+
+    const messages = [...messageStore.values()]
+      .filter((message) => message.recipientId === userId || message.recipientId === 'all')
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    sendJson(res, 200, { ok: true, messages });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    try {
+      const input = await readJsonBody(req);
+      const message = normalizeMessageInput(input.message ?? input);
+      messageStore.set(message.id, message);
+      persistMessageStore();
+      sendJson(res, 200, { ok: true, message });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to send the message.' });
+    }
+    return;
+  }
+
+  sendJson(res, 405, { ok: false, error: 'GET or POST is required.' });
+}
+
 async function handleSendAuthorOtp(req, res) {
   if (req.method !== 'POST') {
     sendJson(res, 405, { ok: false, error: 'POST is required.' });
@@ -670,6 +764,8 @@ const server = createServer(async (req, res) => {
       engineProcess: child && !child.killed ? 'ONLINE' : 'STARTING_ON_DEMAND',
       userRegistry: userDataPath ? 'PERSISTENT' : 'MEMORY',
       registeredUsers: userStore.size,
+      messageBus: messageDataPath ? 'PERSISTENT' : 'MEMORY',
+      storedMessages: messageStore.size,
     });
     return;
   }
@@ -701,6 +797,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === '/api/users/password') {
     await handleUserPassword(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/messages') {
+    await handleMessages(req, res, url);
     return;
   }
 

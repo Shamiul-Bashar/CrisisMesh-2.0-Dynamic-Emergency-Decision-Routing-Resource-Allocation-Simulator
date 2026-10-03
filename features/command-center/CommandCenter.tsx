@@ -55,6 +55,19 @@ function writeAuthorMessages(messages: AuthorMessage[]) {
   localStorage.setItem('cm-user-messages', JSON.stringify(messages));
 }
 
+async function sendSharedMessage(message: AuthorMessage): Promise<AuthorMessage> {
+  const response = await fetch(apiUrl('/api/messages'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data = await response.json() as { ok?: boolean; message?: AuthorMessage; error?: string };
+  if (!response.ok || !data.ok || !data.message) {
+    throw new Error(data.error || 'Unable to deliver the message to the shared message bus.');
+  }
+  return data.message;
+}
+
 export default function CommandCenter({ onHome }: { onHome: () => void }) {
   const [state,setState]=useState<SimulationState|null>(null),[selection,setSelection]=useState<Selection>(null);
   const [bridgeStatus,setBridgeStatus]=useState<'ONLINE'|'OFFLINE'|'CHECKING'|'ERROR'>('CHECKING');
@@ -111,7 +124,7 @@ function UserDatabasePanel() {
   const [users,setUsers]=useState<AuthorUser[]>([]);
   const [usersLoading,setUsersLoading]=useState(true);
   const [usersError,setUsersError]=useState('');
-  const [messagesVersion, setMessagesVersion] = useState(0);
+  const [messages,setMessages]=useState<AuthorMessage[]>([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'Active' | 'Inactive'>('ALL');
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'created' | 'id'>('recent');
@@ -122,7 +135,6 @@ function UserDatabasePanel() {
   const [broadcastBody, setBroadcastBody] = useState('');
   const [directFeedback, setDirectFeedback] = useState<string | null>(null);
   const [broadcastFeedback, setBroadcastFeedback] = useState<string | null>(null);
-  const messages = useMemo(() => readAuthorMessages(), [messagesVersion]);
 
   const refreshUsers = useCallback(async () => {
     setUsersError('');
@@ -135,12 +147,30 @@ function UserDatabasePanel() {
         body: JSON.stringify({ user }),
       })));
 
-      const response = await fetch(apiUrl('/api/users'));
-      const data = await response.json() as { ok?: boolean; users?: AuthorUser[]; error?: string };
-      if (!response.ok || !data.ok || !Array.isArray(data.users)) {
-        throw new Error(data.error || 'Unable to load the shared online user registry.');
+      // Migrate legacy messages from this Author browser once; server IDs make the sync idempotent.
+      const legacyMessages = readAuthorMessages();
+      await Promise.allSettled(legacyMessages.map((message) => fetch(apiUrl('/api/messages'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      })));
+
+      const [usersResponse, messagesResponse] = await Promise.all([
+        fetch(apiUrl('/api/users')),
+        fetch(apiUrl('/api/messages?scope=author')),
+      ]);
+      const usersData = await usersResponse.json() as { ok?: boolean; users?: AuthorUser[]; error?: string };
+      const messagesData = await messagesResponse.json() as { ok?: boolean; messages?: AuthorMessage[]; error?: string };
+
+      if (!usersResponse.ok || !usersData.ok || !Array.isArray(usersData.users)) {
+        throw new Error(usersData.error || 'Unable to load the shared online user registry.');
       }
-      setUsers(data.users);
+      if (!messagesResponse.ok || !messagesData.ok || !Array.isArray(messagesData.messages)) {
+        throw new Error(messagesData.error || 'Unable to load the shared message bus.');
+      }
+
+      setUsers(usersData.users);
+      setMessages(messagesData.messages);
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Unable to load registered users.');
     } finally {
@@ -188,10 +218,9 @@ function UserDatabasePanel() {
 
   const refreshStore = () => {
     void refreshUsers();
-    setMessagesVersion((value) => value + 1);
   };
 
-  const sendDirectMessage = (event: React.FormEvent) => {
+  const sendDirectMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedUser) {
       setDirectFeedback('Select a user before sending a message.');
@@ -212,16 +241,21 @@ function UserDatabasePanel() {
       read: false,
       type: 'individual'
     };
-    const nextMessages = [...readAuthorMessages(), item];
-    writeAuthorMessages(nextMessages);
-    setComposeBody('');
-    setComposeSubject('Operations update');
-    setDirectFeedback('Message sent successfully.');
-    setBroadcastFeedback(null);
-    refreshStore();
+    setDirectFeedback('Sending…');
+    try {
+      const delivered = await sendSharedMessage(item);
+      writeAuthorMessages([...readAuthorMessages().filter((message) => message.id !== delivered.id), delivered]);
+      setComposeBody('');
+      setComposeSubject('Operations update');
+      setDirectFeedback('Message delivered to the user inbox.');
+      setBroadcastFeedback(null);
+      await refreshUsers();
+    } catch (error) {
+      setDirectFeedback(error instanceof Error ? error.message : 'Unable to deliver the message.');
+    }
   };
 
-  const sendBroadcast = (event: React.FormEvent) => {
+  const sendBroadcast = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!broadcastBody.trim()) {
       setBroadcastFeedback('Please enter a message before sending.');
@@ -240,13 +274,18 @@ function UserDatabasePanel() {
       read: false,
       type: 'broadcast'
     };
-    const nextMessages = [...readAuthorMessages(), item];
-    writeAuthorMessages(nextMessages);
-    setBroadcastBody('');
-    setBroadcastSubject('City-wide advisory');
-    setBroadcastFeedback('Announcement sent successfully.');
-    setDirectFeedback(null);
-    refreshStore();
+    setBroadcastFeedback('Sending…');
+    try {
+      const delivered = await sendSharedMessage(item);
+      writeAuthorMessages([...readAuthorMessages().filter((message) => message.id !== delivered.id), delivered]);
+      setBroadcastBody('');
+      setBroadcastSubject('City-wide advisory');
+      setBroadcastFeedback('Announcement delivered to all registered user inboxes.');
+      setDirectFeedback(null);
+      await refreshUsers();
+    } catch (error) {
+      setBroadcastFeedback(error instanceof Error ? error.message : 'Unable to deliver the announcement.');
+    }
   };
 
   return <div className="author-db-panel">
