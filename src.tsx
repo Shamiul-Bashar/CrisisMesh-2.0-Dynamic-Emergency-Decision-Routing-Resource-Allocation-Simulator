@@ -131,12 +131,28 @@ async function authenticateOnlineUser(identity: string, password: string): Promi
   return { ...data.user, passwordHash };
 }
 
-async function updateOnlineUserPassword(userId: string, password: string): Promise<void> {
+async function findOnlineUserByPhone(phone: string): Promise<Omit<StoredUser, 'passwordHash'> | null> {
+  const response = await fetch(apiUrl('/api/users/recovery'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone }),
+  });
+  if (response.status === 404) return null;
+  const data = await response.json() as {
+    ok?: boolean;
+    user?: Omit<StoredUser, 'passwordHash'>;
+    error?: string;
+  };
+  if (!response.ok || !data.ok || !data.user) throw new Error(data.error || 'Unable to verify the online recovery account.');
+  return data.user;
+}
+
+async function updateOnlineUserPassword(userId: string, phone: string, password: string): Promise<void> {
   const passwordHash = await hashText(password);
   const response = await fetch(apiUrl('/api/users/password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, passwordHash }),
+    body: JSON.stringify({ userId, phone, passwordHash }),
   });
   const data = await response.json() as { ok?: boolean; error?: string };
   if (!response.ok || !data.ok) throw new Error(data.error || 'Unable to update the online password.');
@@ -667,14 +683,30 @@ function ForgotPassword({
     }
 
     const users = getUsers();
+    const localMatch = users.find(
+      (user) => normalizePhone(user.phone) === normalizedPhone
+    ) ?? null;
 
-    const match =
-      users.find(
-        (user) =>
-          normalizePhone(
-            user.phone
-          ) === normalizedPhone
-      );
+    let match: StoredUser | null = localMatch;
+
+    try {
+      const onlineMatch = await findOnlineUserByPhone(normalizedPhone);
+      if (onlineMatch) {
+        match = {
+          ...onlineMatch,
+          passwordHash: localMatch?.passwordHash ?? '',
+        };
+      }
+    } catch (error) {
+      if (!localMatch) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : 'Unable to verify the online recovery account.'
+        );
+        return;
+      }
+    }
 
     if (!match) {
       setNotice(
@@ -899,11 +931,26 @@ function ForgotPassword({
         );
 
       } else if (userMatch) {
-        await updateUserPassword(localStorage, userMatch.id, newPassword);
+        let onlineUpdated = false;
         try {
-          await updateOnlineUserPassword(userMatch.id, newPassword);
+          await updateOnlineUserPassword(userMatch.id, userMatch.phone, newPassword);
+          onlineUpdated = true;
         } catch {
-          // A legacy local account can still be migrated on its next successful sign-in.
+          // Legacy browser-only accounts can still be updated locally and migrated on next login.
+        }
+
+        const localUsers = getUsers();
+        const localMatch = localUsers.find((user) => user.id === userMatch.id) ?? null;
+        if (localMatch) {
+          await updateUserPassword(localStorage, userMatch.id, newPassword);
+        } else if (onlineUpdated) {
+          const passwordHash = await hashText(newPassword);
+          saveUsers([
+            ...localUsers.filter((user) => user.id !== userMatch.id),
+            { ...userMatch, passwordHash },
+          ]);
+        } else {
+          throw new Error('The intended user account could not be updated.');
         }
       } else {
         throw new Error('The intended user account could not be identified.');

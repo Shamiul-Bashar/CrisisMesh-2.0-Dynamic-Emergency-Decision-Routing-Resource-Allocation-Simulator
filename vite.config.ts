@@ -267,7 +267,7 @@ function simulationBridge(): Plugin {
           setTimeout(
             () => {
               const message =
-                'C++ Simulation Development Bridge timed out waiting for a response.';
+                'C++ Simulation Bridge timed out waiting for a response.';
 
               rejectPending(
                 message

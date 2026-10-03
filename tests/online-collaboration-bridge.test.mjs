@@ -117,6 +117,30 @@ test('shared online users and messages synchronize across devices and persist ac
     assert.equal(users.data.users.length, 2);
     assert.ok(users.data.users.every((user) => !Object.hasOwn(user, 'passwordHash')));
 
+    const recoveryLookup = await jsonRequest(backend.baseUrl, '/api/users/recovery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: userA.phone }),
+    });
+    assert.equal(recoveryLookup.response.status, 200, recoveryLookup.data.error);
+    assert.equal(recoveryLookup.data.user.id, userA.id);
+    assert.equal(Object.hasOwn(recoveryLookup.data.user, 'passwordHash'), false);
+
+    const rejectedPasswordReset = await jsonRequest(backend.baseUrl, '/api/users/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: userA.id, phone: '01999999999', passwordHash: 'new-hash-a' }),
+    });
+    assert.equal(rejectedPasswordReset.response.status, 403);
+
+    const acceptedPasswordReset = await jsonRequest(backend.baseUrl, '/api/users/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: userA.id, phone: userA.phone, passwordHash: 'new-hash-a' }),
+    });
+    assert.equal(acceptedPasswordReset.response.status, 200, acceptedPasswordReset.data.error);
+    userA.passwordHash = 'new-hash-a';
+
     const wrongLogin = await jsonRequest(backend.baseUrl, '/api/users/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

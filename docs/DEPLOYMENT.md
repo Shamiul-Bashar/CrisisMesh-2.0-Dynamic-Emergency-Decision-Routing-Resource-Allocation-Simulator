@@ -32,6 +32,11 @@ Recommended:
 
 - `RESEND_FROM_EMAIL` — sender identity. For initial Resend testing, `CrisisMesh 2.0 <onboarding@resend.dev>` can be used subject to Resend's test-recipient restriction. For general delivery, use an address on a verified domain.
 
+Persistent hosted data:
+
+- `USER_DATA_PATH` — path on the Railway volume for the shared citizen registry, for example `/data/users.json`
+- `MESSAGE_DATA_PATH` — optional explicit path for Author/Citizen messages. When omitted it defaults to `messages.json` beside `USER_DATA_PATH`
+
 Optional local fallback:
 
 - `EMAIL_USER` and `EMAIL_APP_PASSWORD` — Gmail SMTP fallback for local development. Railway Hobby/Trial outbound SMTP is blocked, so hosted OTP uses the Resend HTTPS API.
@@ -41,6 +46,13 @@ Railway supplies `PORT` automatically. The service binds to `0.0.0.0` and expose
 
 - `GET /health`
 - `POST /api/simulation`
+- `GET /api/users`
+- `POST /api/users/check`
+- `POST /api/users/sync`
+- `POST /api/users/login`
+- `POST /api/users/recovery`
+- `POST /api/users/password`
+- `GET/POST /api/messages`
 - `POST /api/auth/send-author-otp`
 - `POST /api/auth/verify-author-otp`
 
@@ -72,12 +84,12 @@ Do not add a trailing slash. The frontend keeps using local `/api/*` routes when
 
 The Railway service keeps one persistent C++ `SimulationEngine` process alive while the service instance is running. This preserves incident, responder, dispatch, road, heap/queue, and graph-revision state across normal HTTP requests.
 
-A platform restart or redeploy still resets the current in-memory simulation state. That behavior matches the documented academic limitation. Persistent snapshots can be added later without changing the DSA decision engine.
+A platform restart or redeploy still resets the current in-memory C++ simulation state. The citizen registry and message bus are separate from that simulation state and persist on the attached Railway volume. Persistent C++ snapshots can be added later without changing the DSA decision engine.
 
 ## Security
 
 - Never commit `.env`, `RESEND_API_KEY`, or Gmail app passwords.
 - Only `.env.example` is tracked.
 - Restrict `ALLOWED_ORIGINS` to the deployed frontend once the Vercel URL is known.
-- The frontend receives no Resend/Gmail credential, OTP secret, password hash, or backend environment value.
+- Author directory responses never include citizen password hashes, OTP secrets, or backend environment values.
 - The hosted deployment sends OTP mail through Resend's HTTPS API; the C++ simulation and OTP verification logic remain unchanged.

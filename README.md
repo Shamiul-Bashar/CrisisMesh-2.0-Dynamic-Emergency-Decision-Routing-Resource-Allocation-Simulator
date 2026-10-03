@@ -62,17 +62,21 @@ Exact implementation and test evidence is documented in [`docs/DSA_REQUIREMENTS_
 
 ```text
 React / TypeScript
-        ↓ POST /api/simulation
-Vite development bridge
+        ↓ HTTPS
+Railway Node bridge
         ↓ persistent line protocol
 C++17 SimulationEngine
         ↓
 Manual DSA, authoritative state, events, and analysis results
+
+Shared hosted services
+        ├─ persistent citizen registry
+        └─ persistent Author → Citizen message bus
 ```
 
 The C++ engine is authoritative for incident creation, triage, priority, scheduling, responder compatibility, candidate ranking, routing, road state, rerouting, lifecycle transitions, allocation, and incident history. React sends commands and renders returned state. It does not choose responders, calculate priority, or calculate routes.
 
-The Vite bridge validates browser requests, forwards them to `crisismesh_simulation_cli --server`, and returns the C++ JSON response envelope. It is development infrastructure rather than a deployed backend.
+Production uses a persistent Node bridge on Railway. It validates HTTP requests, forwards simulation commands to `crisismesh_simulation_cli --server`, and returns the authoritative C++ JSON response envelope. Vite keeps a local simulation bridge for development, while hosted account and messaging flows use the Railway API.
 
 ## Routing Model
 
@@ -122,7 +126,8 @@ Every saved dispatch and analysis result carries a graph revision. Playback is i
 
 ## Citizen Features
 
-- Registration, login, local session identity, and password recovery flows
+- Registration and login synchronized through the hosted citizen registry
+- Per-tab authenticated session identity with cross-device account recovery
 - Emergency reporting tied to the authenticated citizen ID
 - Owner-filtered active incidents and closed history
 - Citizen-friendly lifecycle and responder information
@@ -160,11 +165,19 @@ cmake --build backend/build
 
 ### 3. Start CrisisMesh
 
+For the full hosted-style local stack, start the Node/C++ backend first:
+
+```powershell
+npm run start:backend
+```
+
+Set `VITE_API_BASE_URL=http://127.0.0.1:8080` in a local `.env`, then in a second terminal run:
+
 ```powershell
 npm run dev -- --host 127.0.0.1
 ```
 
-Open `http://127.0.0.1:5173/`. Vite starts the persistent C++ bridge process when the browser first requests simulation state.
+Open `http://127.0.0.1:5173/`. If `VITE_API_BASE_URL` is omitted, Vite still provides the academic simulation and Author OTP development bridges, but the shared hosted user/message APIs require the Node backend.
 
 ### 4. Create a production frontend bundle
 
@@ -172,7 +185,7 @@ Open `http://127.0.0.1:5173/`. Vite starts the persistent C++ bridge process whe
 npm run build
 ```
 
-The production bundle validates the frontend but does not replace the development bridge with a deployed server.
+The production frontend is deployed separately from the Railway Node/C++ backend. `VITE_API_BASE_URL` connects the Vercel bundle to that backend.
 
 ## Testing
 
@@ -202,10 +215,11 @@ Latest verified matrix:
 
 - The development bridge and C++ simulation state are in-memory.
 - Incidents, dispatches, road changes, and analysis state reset when the engine process restarts.
-- Demo user, session, and message persistence uses browser `localStorage`.
+- Citizen accounts and Author messages are persisted on the Railway volume; the active browser session remains tab-scoped.
+- Current C++ simulation state is intentionally in-memory and resets on backend restart/redeploy.
 - The city is fictional and has no real GPS, Mapbox, Google Maps, or municipal feed.
 - Responder route movement is simulated presentation and does not represent live vehicles.
-- The Vite bridge is local development infrastructure, not a production service.
+- The Vite bridge is local development infrastructure; production uses the Railway Node bridge.
 - Authentication is suitable for an academic demonstration, not production identity security.
 
 ## Team / Academic Purpose

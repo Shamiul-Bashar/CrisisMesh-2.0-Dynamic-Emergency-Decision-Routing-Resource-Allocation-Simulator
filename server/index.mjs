@@ -564,6 +564,32 @@ async function handleUserLogin(req, res) {
   }
 }
 
+async function handleUserRecoveryLookup(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const input = await readJsonBody(req);
+    const phone = normalizePhoneValue(input.phone);
+    if (!phone) {
+      sendJson(res, 400, { ok: false, error: 'Registered phone number is required.' });
+      return;
+    }
+
+    const user = [...userStore.values()].find((candidate) => normalizePhoneValue(candidate.phone) === phone) ?? null;
+    if (!user) {
+      sendJson(res, 404, { ok: false, error: 'No registered account matches that phone number.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, user: publicUser(user) });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Unable to verify the recovery account.' });
+  }
+}
+
 async function handleUserPassword(req, res) {
   if (req.method !== 'POST') {
     sendJson(res, 405, { ok: false, error: 'POST is required.' });
@@ -574,10 +600,16 @@ async function handleUserPassword(req, res) {
     const input = await readJsonBody(req);
     const userId = String(input.userId ?? '').trim();
     const passwordHash = String(input.passwordHash ?? '').trim();
+    const phone = normalizePhoneValue(input.phone);
     const user = userStore.get(userId);
 
     if (!user || !passwordHash) {
       sendJson(res, 404, { ok: false, error: 'The intended online account could not be found.' });
+      return;
+    }
+
+    if (!phone || normalizePhoneValue(user.phone) !== phone) {
+      sendJson(res, 403, { ok: false, error: 'Registered phone verification is required before updating this password.' });
       return;
     }
 
@@ -796,6 +828,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === '/api/users/login') {
     await handleUserLogin(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/users/recovery') {
+    await handleUserRecoveryLookup(req, res);
     return;
   }
 
